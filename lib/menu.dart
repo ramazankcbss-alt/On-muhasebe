@@ -6,6 +6,7 @@ import 'cari.dart';
 import 'cek.dart';
 import 'db.dart';
 import 'entegrasyon.dart';
+import 'giris.dart';
 import 'guncelleme.dart';
 import 'hizli.dart';
 import 'ortak.dart';
@@ -255,13 +256,13 @@ class _AnaMenuState extends State<AnaMenu> {
   void initState() {
     super.initState();
     yukle();
-    Senkron.yenilendi.addListener(yukle);
-    WidgetsBinding.instance.addPostFrameCallback((_) => Guncelleme.denetle(context));
+    Senkron.degisti.addListener(yukle);
+    WidgetsBinding.instance.addPostFrameCallback((_) => Guncelleme.kontrol(context));
   }
 
   @override
   void dispose() {
-    Senkron.yenilendi.removeListener(yukle);
+    Senkron.degisti.removeListener(yukle);
     super.dispose();
   }
 

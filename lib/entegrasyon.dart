@@ -130,7 +130,7 @@ class _PortalFormState extends State<PortalForm> {
                 label: const Text('Kayıtlı otomatik aktarım eşlemesini sil'),
                 onPressed: () async {
                   final d = await DB.db;
-                  await d.update('portal', {'otomatik': null}, where: 'id=?', whereArgs: [widget.p!['id']]);
+                  await DB.upd(d, 'portal', {'otomatik': null}, 'id=?', [widget.p!['id']]);
                   if (context.mounted) mesaj(context, 'Eşleme silindi');
                 }),
         ]),
@@ -180,10 +180,20 @@ class PortalWeb extends StatefulWidget {
   State<PortalWeb> createState() => _PortalWebState();
 }
 
+/// Sayfada bulunan, aktarılabilecek tablo
+class _Bulgu {
+  final List<List<String>> tablo;
+  final Hedef? hedef;
+  _Bulgu(this.tablo, this.hedef);
+}
+
 class _PortalWebState extends State<PortalWeb> {
   late final WebViewController c;
   double ilerleme = 0;
   Map<String, dynamic>? oto;
+  _Bulgu? bulgu;
+  final _yoksayilan = <String>{};
+  bool _otoUyar = true;
 
   @override
   void initState() {
@@ -196,6 +206,10 @@ class _PortalWebState extends State<PortalWeb> {
         onProgress: (p) {
           if (mounted) setState(() => ilerleme = p / 100);
         },
+        onPageStarted: (_) {
+          if (mounted) setState(() => bulgu = null);
+        },
+        onPageFinished: (_) => tara(),
       ))
       ..loadRequest(Uri.parse('${widget.portal['url']}'));
   }
@@ -206,6 +220,83 @@ class _PortalWebState extends State<PortalWeb> {
     v = jsonDecode(v as String);
     if (v is String) v = jsonDecode(v);
     return (v as List).map((t) => (t as List).map((row) => (row as List).map((x) => '$x').toList()).toList()).toList();
+  }
+
+  /// Sayfa yüklenince tabloları tarar; aktarılabilecek veri varsa altta bildirir.
+  Future<void> tara() async {
+    if (!_otoUyar || oto != null) return;
+    await Future.delayed(const Duration(milliseconds: 800));
+    List<List<List<String>>> t;
+    try {
+      t = await tablolar();
+    } catch (_) {
+      return;
+    }
+    t = t.where((x) => x.length > 2).toList()..sort((a, b) => b.length.compareTo(a.length));
+    if (t.isEmpty || !mounted) return;
+    final tablo = t.first;
+    final imza = tablo.first.join('|');
+    if (_yoksayilan.contains(imza)) return;
+    final b = baslikSatiriBul(tablo);
+    setState(() => bulgu = _Bulgu(tablo, enIyiHedef(tablo[b])));
+  }
+
+  Widget bulguPaneli(_Bulgu g) {
+    final n = g.tablo.length - baslikSatiriBul(g.tablo) - 1;
+    return Material(
+      elevation: 8,
+      color: Theme.of(context).colorScheme.secondaryContainer,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(g.hedef == null ? '$n satırlık tablo bulundu' : '"${g.hedef!.ad}" verisi bulundu', style: const TextStyle(fontWeight: FontWeight.bold)),
+            Text(g.hedef != null ? '$n satırlık tablo bulundu' : 'Olduğu gibi saklansın mı ya da bir bölüme aktarılsın mı?', style: const TextStyle(fontSize: 12)),
+            Wrap(spacing: 4, children: [
+              if (g.hedef != null) FilledButton.tonal(onPressed: () => bulguAktar(g), child: const Text('Hızlı aktar')),
+              TextButton(onPressed: () => kontrolEdipAktar(g), child: const Text('Kontrol edip aktar')),
+              TextButton(
+                  onPressed: () => setState(() {
+                        _yoksayilan.add(g.tablo.first.join('|'));
+                        bulgu = null;
+                      }),
+                  child: const Text('Yoksay')),
+            ]),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Future<void> bulguAktar(_Bulgu g) async {
+    final h = g.hedef!;
+    final kayitlar = tabloHazirla(h, g.tablo);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('Uygulamaya aktarılsın mı?'),
+        content: Text('${kayitlar.length} satır "${h.ad}"'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Vazgeç')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Aktar')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final s = await hedefeAktar(h.kod, kayitlar, kaynak: '${widget.portal['ad']}');
+    if (!mounted) return;
+    setState(() => bulgu = null);
+    mesaj(context, s.toString());
+  }
+
+  Future<void> kontrolEdipAktar(_Bulgu g) async {
+    final hedef = g.hedef?.kod ?? _varsayilan();
+    setState(() => bulgu = null);
+    await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+            builder: (_) => EslestirmeEkrani(satirlar: g.tablo, kaynak: '${widget.portal['ad']}', portalId: widget.portal['id'] as int, varsayilanHedef: hedef)));
   }
 
   Future<void> tabloSec() async {
@@ -308,5 +399,6 @@ class _PortalWebState extends State<PortalWeb> {
           bottom: ilerleme < 1 ? PreferredSize(preferredSize: const Size.fromHeight(3), child: LinearProgressIndicator(value: ilerleme)) : null,
         ),
         body: WebViewWidget(controller: c),
+        bottomNavigationBar: bulgu == null ? null : bulguPaneli(bulgu!),
       );
 }

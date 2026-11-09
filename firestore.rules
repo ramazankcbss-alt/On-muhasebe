@@ -3,7 +3,7 @@ rules_version = '2';
 // Sadece giriş yapmış kullanıcılar (yöneticinin Authentication'a eklediği hesaplar) okuyup yazabilir.
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /sirketler/kones/kayitlar/{kayit} {
+    match /firmalar/{firma}/{belge=**} {
       allow read, write: if request.auth != null;
     }
   }

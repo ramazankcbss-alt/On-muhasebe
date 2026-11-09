@@ -11,60 +11,30 @@ class DB {
 
   static Future<Database> _ac() async {
     final yol = p.join(await getDatabasesPath(), 'on_muhasebe.db');
-    return openDatabase(
-      yol,
-      version: surum,
-      onCreate: (d, v) async {
-        for (final s in _sema) {
-          await d.execute(s);
-        }
-        await _baslangic(d);
-        await _ekTablolar(d);
-      },
-      onUpgrade: (d, eski, yeni) => _ekTablolar(d),
-      // Daha yeni bir sürümden geri dönülürse veriyi silme, olduğu gibi kullan.
-      onDowngrade: (d, eski, yeni) => _ekTablolar(d),
-      onOpen: _ekTablolar,
-    );
+    return openDatabase(yol, version: 2, onCreate: (d, v) async {
+      for (final s in _sema) {
+        await d.execute(s);
+      }
+      await _baslangic(d);
+    }, onUpgrade: (d, eski, yeni) async {
+      if (eski < 2) {
+        await d.execute(_ayarTablosu);
+        await d.execute(_degisiklikTablosu);
+      }
+    });
   }
 
-  /// Veritabanı şema sürümü. 1.0.10'dan üst üste kurulumda tablolar korunur,
-  /// eksik olanlar (_ekTablolar) eklenir.
-  static const surum = 20;
+  static const _ayarTablosu = 'CREATE TABLE ayar(k TEXT PRIMARY KEY, v TEXT)';
+  static const _degisiklikTablosu =
+      'CREATE TABLE degisiklik(id INTEGER PRIMARY KEY AUTOINCREMENT, tablo TEXT, kayit_id INTEGER, sil INTEGER DEFAULT 0)';
 
-  /// Bulutla eşitlenen tablolar ve anahtar sütunları.
-  static const esitlenen = <String, String>{
-    'sirket': 'id', 'cari': 'id', 'cari_hareket': 'id', 'depo': 'id', 'urun': 'id',
-    'stok_hareket': 'id', 'recete': 'id', 'recete_kalem': 'id', 'uretim_emri': 'id',
-    'belge': 'id', 'belge_satir': 'id', 'hesap': 'id', 'finans_hareket': 'id',
-    'cek_senet': 'id', 'portal': 'id', 'serbest_tablo': 'id', 'notlar': 'id',
-    'aktarim_hash': 'h', 'wa_mesaj': 'anahtar',
-  };
+  /// Buluta gönderilmeyen tablolar
+  static const esitlenmez = {'ayar', 'degisiklik', 'aktarim_hash', 'wa_mesaj', 'android_metadata', 'sqlite_sequence'};
 
-  /// 1.0.0 sonrası eklenen tablolar (ayar, değişiklik kaydı, WhatsApp mesajları)
-  /// ve değişiklikleri yakalayan tetikleyiciler. Her açılışta güvenle çalışır.
-  static Future<void> _ekTablolar(Database d) async {
-    await d.execute('CREATE TABLE IF NOT EXISTS ayar(k TEXT PRIMARY KEY, v TEXT)');
-    await d.execute('CREATE TABLE IF NOT EXISTS degisiklik(id INTEGER PRIMARY KEY AUTOINCREMENT, tablo TEXT, kayit_id INTEGER, sil INTEGER DEFAULT 0)');
-    try {
-      await d.execute('ALTER TABLE degisiklik ADD COLUMN anahtar TEXT');
-    } catch (_) {/* sütun zaten var */}
-    await d.execute('UPDATE degisiklik SET anahtar=CAST(kayit_id AS TEXT) WHERE anahtar IS NULL AND kayit_id IS NOT NULL');
-    await d.execute('CREATE TABLE IF NOT EXISTS wa_mesaj(anahtar TEXT PRIMARY KEY, sohbet TEXT, kisi TEXT, metin TEXT, zaman INTEGER)');
-    // Tetikleyiciler sadece giriş yapılmışken (ayar esitle=1) kayıt tutar.
-    const kosul = "(SELECT v FROM ayar WHERE k='esitle')='1'";
-    for (final e in esitlenen.entries) {
-      final t = e.key, k = e.value;
-      final idMi = k == 'id';
-      String ekle(String kaynak, int sil) =>
-          "INSERT INTO degisiklik(tablo, kayit_id, anahtar, sil) VALUES('$t', ${idMi ? '$kaynak.id' : 'NULL'}, CAST($kaynak.$k AS TEXT), $sil);";
-      await d.execute('CREATE TRIGGER IF NOT EXISTS es_${t}_i AFTER INSERT ON $t WHEN $kosul BEGIN ${ekle('NEW', 0)} END');
-      await d.execute('CREATE TRIGGER IF NOT EXISTS es_${t}_u AFTER UPDATE ON $t WHEN $kosul BEGIN ${ekle('NEW', 0)} END');
-      await d.execute('CREATE TRIGGER IF NOT EXISTS es_${t}_d AFTER DELETE ON $t WHEN $kosul BEGIN ${ekle('OLD', 1)} END');
-    }
-  }
+  /// Giriş yapılmışken true: her değişiklik `degisiklik` tablosuna yazılır ve buluta gönderilir.
+  static bool kayitTut = false;
 
-  static Future<String?> ayarAl(String k) async {
+  static Future<String?> ayarOku(String k) async {
     final r = await tek('SELECT v FROM ayar WHERE k=?', [k]);
     return r?['v'] as String?;
   }
@@ -76,6 +46,44 @@ class DB {
     } else {
       await d.insert('ayar', {'k': k, 'v': v}, conflictAlgorithm: ConflictAlgorithm.replace);
     }
+  }
+
+  /// Değişikliği gönderim sırasına yazar (aynı kayda ait eski sıra kaydı silinir).
+  static Future<void> _logla(DatabaseExecutor x, String tablo, Object? id, {bool sil = false}) async {
+    if (!kayitTut || id is! int || esitlenmez.contains(tablo)) return;
+    await x.delete('degisiklik', where: 'tablo=? AND kayit_id=?', whereArgs: [tablo, id]);
+    await x.insert('degisiklik', {'tablo': tablo, 'kayit_id': id, 'sil': sil ? 1 : 0});
+  }
+
+  static Future<List<int>> _idler(DatabaseExecutor x, String t, String where, List<Object?> args) async =>
+      (await x.query(t, columns: ['id'], where: where, whereArgs: args)).map((r) => r['id'] as int).toList();
+
+  /// Ekleme (işlem içinde de kullanılır). Kayda telefonlar arasında çakışmayan numara verilir.
+  static Future<int> ins(DatabaseExecutor x, String t, Map<String, Object?> m, {ConflictAlgorithm? conflictAlgorithm}) async {
+    final v = m['id'] == null ? {...m, 'id': yeniId()} : m;
+    final id = await x.insert(t, v, conflictAlgorithm: conflictAlgorithm);
+    await _logla(x, t, v['id'] ?? id);
+    return id;
+  }
+
+  /// Koşula uyan kayıtları günceller.
+  static Future<int> upd(DatabaseExecutor x, String t, Map<String, Object?> m, String where, List<Object?> args) async {
+    final ids = await _idler(x, t, where, args);
+    final n = await x.update(t, m, where: where, whereArgs: args);
+    for (final id in ids) {
+      await _logla(x, t, id);
+    }
+    return n;
+  }
+
+  /// Koşula uyan kayıtları siler.
+  static Future<int> del(DatabaseExecutor x, String t, String where, List<Object?> args) async {
+    final ids = await _idler(x, t, where, args);
+    final n = await x.delete(t, where: where, whereArgs: args);
+    for (final id in ids) {
+      await _logla(x, t, id, sil: true);
+    }
+    return n;
   }
 
   static const _sema = [
@@ -118,6 +126,8 @@ class DB {
     'CREATE TABLE aktarim_hash(h TEXT PRIMARY KEY)',
     'CREATE TABLE serbest_tablo(id INTEGER PRIMARY KEY AUTOINCREMENT, ad TEXT, kaynak TEXT, tarih TEXT, veri TEXT)',
     'CREATE TABLE notlar(id INTEGER PRIMARY KEY AUTOINCREMENT, tarih TEXT, kaynak TEXT, kisi TEXT, metin TEXT)',
+    _ayarTablosu,
+    _degisiklikTablosu,
     'CREATE INDEX ix_ch ON cari_hareket(cari_id)',
     'CREATE INDEX ix_sh ON stok_hareket(urun_id)',
     'CREATE INDEX ix_fh ON finans_hareket(hesap_id)',
@@ -160,7 +170,7 @@ class DB {
     return r.isEmpty ? null : r.first;
   }
 
-  static Future<int> ekle(String t, Map<String, Object?> m) async => (await db).insert(t, idli(m));
+  static Future<int> ekle(String t, Map<String, Object?> m) async => ins(await db, t, m);
 
   static int _sonId = 0;
 
@@ -172,13 +182,10 @@ class DB {
     return _sonId;
   }
 
-  /// Haritada id yoksa yeni bir id ekler.
-  static Map<String, Object?> idli(Map<String, Object?> m) => m['id'] == null ? {...m, 'id': yeniId()} : m;
 
-  static Future<int> guncelle(String t, Map<String, Object?> m, int id) async =>
-      (await db).update(t, m, where: 'id=?', whereArgs: [id]);
+  static Future<int> guncelle(String t, Map<String, Object?> m, int id) async => upd(await db, t, m, 'id=?', [id]);
 
-  static Future<int> sil(String t, int id) async => (await db).delete(t, where: 'id=?', whereArgs: [id]);
+  static Future<int> sil(String t, int id) async => del(await db, t, 'id=?', [id]);
 
   static final _r = Random();
   static String yeniGrup() =>
@@ -187,17 +194,16 @@ class DB {
   /// Aynı işlemden doğan tüm hareketleri (cari, stok, kasa/banka) ve bağlı belgeyi siler.
   static Future<void> grupSilTx(DatabaseExecutor tx, String grup, {bool belgeDahil = false}) async {
     for (final t in ['cari_hareket', 'stok_hareket', 'finans_hareket']) {
-      await tx.delete(t, where: 'grup=?', whereArgs: [grup]);
+      await del(tx, t, 'grup=?', [grup]);
     }
     if (belgeDahil) {
       final b = await tx.query('belge', columns: ['id'], where: 'grup=?', whereArgs: [grup]);
       for (final x in b) {
-        await tx.delete('belge_satir', where: 'belge_id=?', whereArgs: [x['id']]);
+        await del(tx, 'belge_satir', 'belge_id=?', [x['id']]);
       }
-      await tx.delete('belge', where: 'grup=?', whereArgs: [grup]);
-      await tx.update('cek_senet', {'durum_grup': null, 'durum': 'Portföyde'},
-          where: 'durum_grup=?', whereArgs: [grup]);
-      await tx.delete('cek_senet', where: 'grup=?', whereArgs: [grup]);
+      await del(tx, 'belge', 'grup=?', [grup]);
+      await upd(tx, 'cek_senet', {'durum_grup': null, 'durum': 'Portföyde'}, 'durum_grup=?', [grup]);
+      await del(tx, 'cek_senet', 'grup=?', [grup]);
     }
   }
 

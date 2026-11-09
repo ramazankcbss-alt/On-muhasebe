@@ -149,6 +149,34 @@ Map<String, int> otomatikEsle(Hedef h, List<String> baslik) {
   return out;
 }
 
+/// Başlıklara en çok uyan aktarım hedefini bulur (zorunlu alanları eşleşenler arasından).
+/// Hiçbiri uymazsa null.
+Hedef? enIyiHedef(List<String> baslik) {
+  Hedef? enIyi;
+  var puan = 1;
+  for (final h in hedefler) {
+    if (h.alanlar.isEmpty) continue;
+    final e = otomatikEsle(h, baslik);
+    if (h.alanlar.any((a) => a.zorunlu && !e.containsKey(a.kod))) continue;
+    if (e.length > puan) {
+      puan = e.length;
+      enIyi = h;
+    }
+  }
+  return enIyi;
+}
+
+/// Tablonun başlık satırını bulup satırları hedef alanlarına göre eşler.
+List<Map<String, String>> tabloHazirla(Hedef h, List<List<String>> satirlar) {
+  final b = baslikSatiriBul(satirlar);
+  final e = otomatikEsle(h, satirlar[b]);
+  return satirlar
+      .skip(b + 1)
+      .where((r) => r.any((x) => x.trim().isNotEmpty))
+      .map((r) => {for (final x in e.entries) x.key: x.value < r.length ? r[x.value] : ''})
+      .toList();
+}
+
 class AktarimSonuc {
   int eklendi = 0, atlandi = 0, hata = 0;
   @override
@@ -573,7 +601,7 @@ class VeriAktar extends StatelessWidget {
   }
 
   Future<void> yedek(BuildContext c) async {
-    final tablolar = DB.esitlenen.keys.where((t) => t != 'serbest_tablo').toList();
+    const tablolar = ['sirket', 'cari', 'cari_hareket', 'urun', 'stok_hareket', 'depo', 'belge', 'belge_satir', 'hesap', 'finans_hareket', 'cek_senet', 'recete', 'recete_kalem', 'uretim_emri', 'notlar', 'portal'];
     final sayfalar = <String, (List<String>, List<List<Object?>>)>{};
     for (final t in tablolar) {
       final r = await DB.q('SELECT * FROM $t');
@@ -595,7 +623,8 @@ class VeriAktar extends StatelessWidget {
       if (c.mounted) mesaj(c, '$e'.replaceFirst('Exception: ', ''));
       return;
     }
-    final tablolar = sayfalar.keys.where((t) => DB.esitlenen.containsKey(t)).toList();
+    final mevcut = (await DB.q("SELECT name FROM sqlite_master WHERE type='table'")).map((r) => r['name']).toSet();
+    final tablolar = sayfalar.keys.where((t) => mevcut.contains(t) && !DB.esitlenmez.contains(t)).toList();
     if (tablolar.isEmpty) {
       if (c.mounted) mesaj(c, 'Bu dosya bir Ön Muhasebe yedeği değil (tablo sayfası bulunamadı)');
       return;
@@ -627,7 +656,7 @@ class VeriAktar extends StatelessWidget {
                         : v;
           }
           if (m.isEmpty) continue;
-          await tx.insert(t, m, conflictAlgorithm: ConflictAlgorithm.replace);
+          await DB.ins(tx, t, m, conflictAlgorithm: ConflictAlgorithm.replace);
           n++;
         }
       }

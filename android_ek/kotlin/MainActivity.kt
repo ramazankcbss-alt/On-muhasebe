@@ -12,13 +12,13 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "kones/wa").setMethodCallHandler { call, result ->
             when (call.method) {
-                "izinVar" -> result.success(izinVar())
+                "izinVarMi" -> result.success(izinVar())
                 "izinAc" -> {
                     startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     result.success(null)
                 }
-                "takipAl" -> result.success(WaDinleyici.takip(this).toList())
-                "takipYaz" -> {
+                "takipOku" -> result.success(WaDinleyici.takip(this).toList())
+                "takipAyarla" -> {
                     val l = call.argument<List<String>>("liste") ?: emptyList()
                     WaDinleyici.takipYaz(this, l.toSet())
                     result.success(null)

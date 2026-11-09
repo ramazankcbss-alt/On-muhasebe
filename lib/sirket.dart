@@ -33,8 +33,8 @@ class _SirketBilgisiState extends State<SirketBilgisi> {
     if (k['kod']!.text.trim().isEmpty) return mesaj(context, 'Uyarı: Firma Kodunu boş bırakmayınız.');
     final m = {for (final a in alanlar.keys) a: k[a]!.text.trim()};
     final d = await DB.db;
-    final n = await d.update('sirket', m, where: 'id=1');
-    if (n == 0) await d.insert('sirket', {...m, 'id': 1});
+    final n = await DB.upd(d, 'sirket', m, 'id=1', []);
+    if (n == 0) await DB.ins(d, 'sirket', {...m, 'id': 1});
     if (mounted) Navigator.pop(context);
   }
 

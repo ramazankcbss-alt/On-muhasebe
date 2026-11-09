@@ -9,70 +9,55 @@ import 'ortak.dart';
 
 /// GitHub'daki son sürümü denetler; yeni APK varsa indirme bağlantısını açar.
 class Guncelleme {
-  static const depo = 'ramazankcbss-alt/On-muhasebe';
-  static const _adres = 'https://api.github.com/repos/$depo/releases/latest';
+  static const _adres = 'https://api.github.com/repos/ramazankcbss-alt/On-muhasebe/releases/latest';
 
-  static Future<String> mevcutSurum() async => (await PackageInfo.fromPlatform()).version;
+  static Future<String> mevcut() async => (await PackageInfo.fromPlatform()).version;
 
-  /// "1.0.12" gibi sürümleri karşılaştırır. a > b ise pozitif.
-  static int karsilastir(String a, String b) {
-    List<int> p(String s) => s.replaceAll(RegExp(r'^[vV]'), '').split(RegExp(r'[.+-]')).map((x) => int.tryParse(x) ?? 0).toList();
-    final x = p(a), y = p(b);
+  static List<int> _p(String s) => s.replaceAll(RegExp(r'[^0-9.]'), '').split('.').map((x) => int.tryParse(x) ?? 0).toList();
+
+  static bool _yeniMi(String son, String mevcut) {
+    final a = _p(son), b = _p(mevcut);
     for (var i = 0; i < 3; i++) {
-      final f = (i < x.length ? x[i] : 0) - (i < y.length ? y[i] : 0);
-      if (f != 0) return f;
+      final x = i < a.length ? a[i] : 0, y = i < b.length ? b[i] : 0;
+      if (x != y) return x > y;
     }
-    return 0;
+    return false;
   }
 
-  static Future<({String surum, String url, String notlar})?> sonSurum() async {
-    final c = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+  /// [sor] true ise güncel olduğunda da bilgi verir (elle denetleme).
+  static Future<void> kontrol(BuildContext context, {bool sor = false}) async {
+    Map<String, dynamic> j;
     try {
+      final c = HttpClient()..connectionTimeout = const Duration(seconds: 10);
       final q = await c.getUrl(Uri.parse(_adres));
+      q.headers.set('User-Agent', 'on-muhasebe');
       q.headers.set('Accept', 'application/vnd.github+json');
-      final r = await q.close().timeout(const Duration(seconds: 15));
-      if (r.statusCode != 200) return null;
-      final j = jsonDecode(await r.transform(utf8.decoder).join()) as Map<String, dynamic>;
-      final apk = (j['assets'] as List? ?? []).cast<Map<String, dynamic>>().where((a) => '${a['name']}'.endsWith('.apk')).toList();
-      if (apk.isEmpty) return null;
-      return (surum: '${j['tag_name']}'.replaceAll(RegExp(r'^[vV]'), ''), url: '${apk.first['browser_download_url']}', notlar: '${j['body'] ?? ''}');
+      final r = await q.close();
+      j = jsonDecode(await r.transform(utf8.decoder).join()) as Map<String, dynamic>;
+      c.close();
     } catch (_) {
-      return null;
-    } finally {
-      c.close(force: true);
-    }
-  }
-
-  /// [sessiz] true ise sadece yeni sürüm varsa bir şey gösterir (açılışta kullanılır).
-  static Future<void> denetle(BuildContext context, {bool sessiz = true}) async {
-    final simdi = await mevcutSurum();
-    final son = await sonSurum();
-    if (!context.mounted) return;
-    if (son == null) {
-      if (!sessiz) mesaj(context, 'Sürüm bilgisi alınamadı. İnternet bağlantısını kontrol edin.');
+      if (sor && context.mounted) mesaj(context, 'İnternet bağlantısı yok');
       return;
     }
-    if (karsilastir(son.surum, simdi) <= 0) {
-      if (!sessiz) mesaj(context, 'Uygulama güncel ($simdi)');
+    final son = '${j['tag_name'] ?? ''}';
+    final apk = (j['assets'] as List? ?? []).cast<Map>().where((a) => '${a['name']}'.endsWith('.apk')).toList();
+    final v = await mevcut();
+    if (!context.mounted) return;
+    if (apk.isEmpty || !_yeniMi(son, v)) {
+      if (sor) mesaj(context, 'Uygulama güncel');
       return;
     }
     final ok = await showDialog<bool>(
       context: context,
       builder: (d) => AlertDialog(
-        title: Text('Yeni sürüm: ${son.surum}'),
-        content: SingleChildScrollView(
-          child: Text('Kurulu sürüm: $simdi\n\n'
-              'Güncelle\'ye dokunduğunuzda APK indirilir. İndirme bitince dosyaya dokunup "Güncelle"yi seçin. Verileriniz silinmez.'
-              '${son.notlar.trim().isEmpty ? '' : '\n\n${son.notlar.trim()}'}'),
-        ),
+        title: Text('Yeni sürüm: $son'),
+        content: const Text('Güncelle\'ye dokunduğunuzda APK indirilir. İndirme bitince dosyaya dokunup "Güncelle"yi seçin. Verileriniz silinmez.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Sonra')),
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Vazgeç')),
           FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Güncelle')),
         ],
       ),
     );
-    if (ok == true) {
-      await launchUrl(Uri.parse(son.url), mode: LaunchMode.externalApplication);
-    }
+    if (ok == true) await launchUrl(Uri.parse('${apk.first['browser_download_url']}'), mode: LaunchMode.externalApplication);
   }
 }

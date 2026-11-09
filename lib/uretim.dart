@@ -84,14 +84,14 @@ class _ReceteFormState extends State<ReceteForm> {
       final m = {'ad': ad.text.trim().isEmpty ? urun!['ad'] : ad.text.trim(), 'urun_id': urun!['id'], 'miktar': sy(miktar.text) == 0 ? 1 : sy(miktar.text)};
       int id;
       if (widget.id == null) {
-        id = await tx.insert('recete', DB.idli(m));
+        id = await DB.ins(tx, 'recete', m);
       } else {
         id = widget.id!;
-        await tx.update('recete', m, where: 'id=?', whereArgs: [id]);
-        await tx.delete('recete_kalem', where: 'recete_id=?', whereArgs: [id]);
+        await DB.upd(tx, 'recete', m, 'id=?', [id]);
+        await DB.del(tx, 'recete_kalem', 'recete_id=?', [id]);
       }
       for (final k in kalemler) {
-        await tx.insert('recete_kalem', {'id': DB.yeniId(), 'recete_id': id, 'urun_id': k['urun_id'], 'miktar': k['miktar']});
+        await DB.ins(tx, 'recete_kalem', {'recete_id': id, 'urun_id': k['urun_id'], 'miktar': k['miktar']});
       }
     });
     if (mounted) Navigator.pop(context);
@@ -107,7 +107,7 @@ class _ReceteFormState extends State<ReceteForm> {
                   if (!await onay(context, 'Reçete silinsin mi?')) return;
                   await DB.sil('recete', widget.id!);
                   final d = await DB.db;
-                  await d.delete('recete_kalem', where: 'recete_id=?', whereArgs: [widget.id]);
+                  await DB.del(d, 'recete_kalem', 'recete_id=?', [widget.id]);
                   if (context.mounted) Navigator.pop(context);
                 }),
           IconButton(icon: const Icon(Icons.check), onPressed: kaydet),
@@ -189,7 +189,7 @@ class _UretimEmirleriState extends State<UretimEmirleri> {
       {'urun_id': r['urun_id'], 'miktar': sy(e['miktar']), 'fiyat': sy(e['miktar']) == 0 ? 0 : maliyet / sy(e['miktar']), 'kdv': 0}
     ]);
     final d = await DB.db;
-    await d.rawUpdate('UPDATE belge SET kaynak=? WHERE id IN (?, ?)', [kaynak, s1, s2]);
+    await DB.upd(d, 'belge', {'kaynak': kaynak}, 'id IN (?, ?)', [s1, s2]);
     await DB.guncelle('uretim_emri', {'durum': 'Tamamlandı'}, e['id'] as int);
     if (mounted) mesaj(context, 'Üretim tamamlandı. Birim maliyet: ${para(sy(e['miktar']) == 0 ? 0 : maliyet / sy(e['miktar']))}');
     yukle();

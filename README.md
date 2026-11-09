@@ -60,9 +60,9 @@ WhatsApp başka uygulamaların mesajları okumasına izin vermez. Sohbet → ⋮
 ## Bulut eşitleme (birden çok telefon)
 
 - Açılışta **Giriş** ekranı gelir. Kullanıcılar Firebase konsolunda (kones-muhasebe → Authentication) yönetici tarafından eklenir; uygulamada kayıt olunmaz. **Girişsiz devam et** seçilirse veriler sadece o telefonda kalır.
-- Giriş yapılınca her ekleme/değişiklik/silme telefondaki SQLite tetikleyicileriyle `degisiklik` tablosuna yazılır ve Firestore'a (`sirketler/kones/kayitlar`) gönderilir; diğer telefonların değişiklikleri dinlenip işlenir. İnternet yokken girilenler bağlantı gelince gider.
+- Giriş yapılınca her ekleme/değişiklik/silme (`DB.ins/upd/del`) `degisiklik` tablosuna yazılır ve Firestore'a (`firmalar/kones/tablolar/{tablo}/kayitlar/{id}`) gönderilir; diğer telefonların değişiklikleri dinlenip işlenir. İnternet yokken girilenler bağlantı gelince gider.
 - Yeni kayıtlar zamana dayalı numara alır, böylece iki telefon aynı anda kayıt girse de çakışmaz.
-- **Yönetim → Eşitleme ve Güncelleme**: durum, Şimdi eşitle, *Bu telefondaki tüm verileri yeniden gönder*, Çıkış, sürüm denetimi.
+- **Yönetim → Eşitleme ve Güncelleme**: durum, gönderilmeyi bekleyen sayısı, Şimdi eşitle, *Bu telefondaki tüm verileri yeniden gönder*, Çıkış, sürüm denetimi.
 - Firestore kuralları: `firestore.rules` dosyasını Firebase konsolu → Firestore Database → Kurallar'a yapıştırın.
 
 ## Güncelleme
@@ -74,3 +74,7 @@ WhatsApp başka uygulamaların mesajları okumasına izin vermez. Sohbet → ⋮
 WhatsApp → **WhatsApp Otomatik**: bildirim erişimi izni verilir, takip edilecek sohbetler seçilir. Seçili sohbetlerden gelen mesajlar uygulama kapalıyken de yakalanır (`android_ek/kotlin/WaDinleyici.kt`); **Eşitle** ile son 90 günün tutarlı mesajları tahsilat/ödeme/gider olarak işlenir.
 
 `android/` klasörü depoda tutulmaz; derlemede `flutter create` ile oluşturulur ve `android_ek/` içindeki Kotlin dosyaları kopyalanır.
+
+## Portallarda otomatik tablo bulma
+
+Portal sayfası yüklenince sayfadaki tablolar taranır. Aktarılabilir veri bulunursa altta bildirilir: **Hızlı aktar** (en uygun bölüme doğrudan), **Kontrol edip aktar** (eşleme ekranı) veya **Yoksay**.

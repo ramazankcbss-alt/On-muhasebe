@@ -127,26 +127,26 @@ class Servis {
     final g = DB.yeniGrup();
     Future<void> yap(DatabaseExecutor x) async {
       if (t.hesap != 0 && hesap != null) {
-        await x.insert('finans_hareket', {'id': DB.yeniId(), 
+        await DB.ins(x, 'finans_hareket', {
           'hesap_id': hesap, 'tarih': tarih, 'tur': t.ad, 'cari_id': cari, 'kategori': kategori,
           'aciklama': aciklama, 'giris': t.hesap > 0 ? tutar : 0, 'cikis': t.hesap < 0 ? tutar : 0,
           'grup': g, 'kaynak': kaynak,
         });
       }
       if (t.karsi != 0 && karsiHesap != null) {
-        await x.insert('finans_hareket', {'id': DB.yeniId(), 
+        await DB.ins(x, 'finans_hareket', {
           'hesap_id': karsiHesap, 'tarih': tarih, 'tur': t.ad, 'kategori': kategori, 'aciklama': aciklama,
           'giris': t.karsi > 0 ? tutar : 0, 'cikis': t.karsi < 0 ? tutar : 0, 'grup': g, 'kaynak': kaynak,
         });
       }
       if (t.cari != 0 && cari != null) {
-        await x.insert('cari_hareket', {'id': DB.yeniId(), 
+        await DB.ins(x, 'cari_hareket', {
           'cari_id': cari, 'tarih': tarih, 'tur': t.ad, 'aciklama': aciklama,
           'borc': t.cari > 0 ? tutar : 0, 'alacak': t.cari < 0 ? tutar : 0, 'grup': g, 'kaynak': kaynak,
         });
       }
       if (t.karsiCari != 0 && karsiCari != null) {
-        await x.insert('cari_hareket', {'id': DB.yeniId(), 
+        await DB.ins(x, 'cari_hareket', {
           'cari_id': karsiCari, 'tarih': tarih, 'tur': t.ad, 'aciklama': aciklama,
           'borc': t.karsiCari > 0 ? tutar : 0, 'alacak': t.karsiCari < 0 ? tutar : 0, 'grup': g, 'kaynak': kaynak,
         });
@@ -179,7 +179,7 @@ class Servis {
         final o = await tx.query('belge', columns: ['grup'], where: 'id=?', whereArgs: [id]);
         grup = (o.isNotEmpty ? o.first['grup'] as String? : null) ?? DB.yeniGrup();
         await DB.grupSilTx(tx, grup);
-        await tx.delete('belge_satir', where: 'belge_id=?', whereArgs: [id]);
+        await DB.del(tx, 'belge_satir', 'belge_id=?', [id]);
       } else {
         grup = DB.yeniGrup();
       }
@@ -206,22 +206,22 @@ class Servis {
         ..['grup'] = grup;
       int bid;
       if (id != null) {
-        await tx.update('belge', m, where: 'id=?', whereArgs: [id]);
+        await DB.upd(tx, 'belge', m, 'id=?', [id]);
         bid = id;
       } else {
-        bid = await tx.insert('belge', DB.idli(m));
+        bid = await DB.ins(tx, 'belge', m);
       }
       final tarih = b['tarih'] as String;
       final depo = (b['depo_id'] as int?) ?? 1;
       final no = b['no'] ?? '';
       final stokEtkisiz = b['stok_etkisiz'] == 1;
       for (final s in temiz) {
-        await tx.insert('belge_satir', {'id': DB.yeniId(), ...s, 'belge_id': bid});
+        await DB.ins(tx, 'belge_satir', {...s, 'belge_id': bid});
         final uid = s['urun_id'] as int?;
         if (uid == null || stokEtkisiz) continue;
         final mik = s['miktar'] as double;
         final birimNet = mik == 0 ? 0.0 : (s['tutar'] as double) / mik;
-        Future<void> hareket(int dep, double giris, double cikis) => tx.insert('stok_hareket', {'id': DB.yeniId(), 
+        Future<void> hareket(int dep, double giris, double cikis) => DB.ins(tx, 'stok_hareket', {
               'urun_id': uid, 'depo_id': dep, 'tarih': tarih, 'tur': t.kod, 'giris': giris, 'cikis': cikis,
               'fiyat': birimNet, 'belge_id': bid, 'grup': grup, 'aciklama': '${t.ad} $no',
             });
@@ -234,7 +234,7 @@ class Servis {
       }
       final cari = b['cari_id'] as int?;
       if (t.cari != 0 && cari != null) {
-        await tx.insert('cari_hareket', {'id': DB.yeniId(), 
+        await DB.ins(tx, 'cari_hareket', {
           'cari_id': cari, 'tarih': tarih, 'tur': t.ad, 'aciklama': '${t.ad} $no',
           'borc': t.cari > 0 ? genel : 0, 'alacak': t.cari < 0 ? genel : 0, 'belge_id': bid, 'grup': grup,
         });
@@ -242,13 +242,13 @@ class Servis {
       final hesap = b['hesap_id'] as int?;
       if (t.cari != 0 && (b['odeme'] ?? 'acik') != 'acik' && hesap != null) {
         final tahsil = t.cari > 0;
-        await tx.insert('finans_hareket', {'id': DB.yeniId(), 
+        await DB.ins(tx, 'finans_hareket', {
           'hesap_id': hesap, 'tarih': tarih, 'tur': tahsil ? 'Tahsilat' : 'Ödeme', 'cari_id': cari,
           'kategori': t.ad, 'aciklama': '${t.ad} $no', 'giris': tahsil ? genel : 0, 'cikis': tahsil ? 0 : genel,
           'grup': grup,
         });
         if (cari != null) {
-          await tx.insert('cari_hareket', {'id': DB.yeniId(), 
+          await DB.ins(tx, 'cari_hareket', {
             'cari_id': cari, 'tarih': tarih, 'tur': tahsil ? 'Tahsilat' : 'Ödeme', 'aciklama': '${t.ad} $no',
             'borc': tahsil ? 0 : genel, 'alacak': tahsil ? genel : 0, 'belge_id': bid, 'grup': grup,
           });
@@ -256,7 +256,7 @@ class Servis {
       }
       final kaynakId = b['kaynak_id'] as int?;
       if (kaynakId != null && id == null) {
-        await tx.update('belge', {'durum': 'Kapandı'}, where: 'id=?', whereArgs: [kaynakId]);
+        await DB.upd(tx, 'belge', {'durum': 'Kapandı'}, 'id=?', [kaynakId]);
       }
       return bid;
     });
