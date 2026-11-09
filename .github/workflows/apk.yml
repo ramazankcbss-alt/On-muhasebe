@@ -76,3 +76,12 @@ jobs:
           tag_name: v${{ env.SURUM }}
           name: Ön Muhasebe v${{ env.SURUM }}
           files: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Deneme sürümü (main dışı dallar)
+        if: github.ref != 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: deneme-${{ github.run_number }}
+          name: Deneme ${{ env.SURUM }} (${{ github.ref_name }})
+          prerelease: true
+          files: build/app/outputs/flutter-apk/app-release.apk
