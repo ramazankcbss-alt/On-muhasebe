@@ -15,8 +15,8 @@ dependencies:
   intl: any
   excel: 4.0.6
   archive: any
-  file_picker: ^8.1.7
-  share_plus: ^10.1.4
+  file_picker: ^10.3.2
+  share_plus: ^11.1.0
   webview_flutter: ^4.10.0
   # Bulut eşitleme (giriş + Firestore)
   firebase_core: '>=3.6.0 <6.0.0'
