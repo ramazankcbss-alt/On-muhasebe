@@ -79,9 +79,6 @@ class Senkron {
     _zamanlayici?.cancel();
     _zamanlayici = null;
     await DB.ayarYaz('esitle', null);
-    final d = await DB.db;
-    await d.delete('degisiklik');
-    bekleyen.value = 0;
     if (kurulu) await FirebaseAuth.instance.signOut();
     durum.value = 'Giriş yapılmadı (veriler sadece bu telefonda)';
   }

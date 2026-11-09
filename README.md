@@ -56,3 +56,21 @@ WhatsApp başka uygulamaların mesajları okumasına izin vermez. Sohbet → ⋮
 - Senet yazdırma ayarları yok (telefondan yazıcıya senet basılmıyor).
 - e-Fatura **gönderimi** özel entegratör sözleşmesi ve API anahtarı gerektirir; şimdilik GİB e-Arşiv portalı uygulama içinden kullanılır ve listeler içeri alınır.
 - Barkod yazdırma, etiket programına aktarılacak Excel listesi olarak verilir.
+
+## Bulut eşitleme (birden çok telefon)
+
+- Açılışta **Giriş** ekranı gelir. Kullanıcılar Firebase konsolunda (kones-muhasebe → Authentication) yönetici tarafından eklenir; uygulamada kayıt olunmaz. **Girişsiz devam et** seçilirse veriler sadece o telefonda kalır.
+- Giriş yapılınca her ekleme/değişiklik/silme telefondaki SQLite tetikleyicileriyle `degisiklik` tablosuna yazılır ve Firestore'a (`sirketler/kones/kayitlar`) gönderilir; diğer telefonların değişiklikleri dinlenip işlenir. İnternet yokken girilenler bağlantı gelince gider.
+- Yeni kayıtlar zamana dayalı numara alır, böylece iki telefon aynı anda kayıt girse de çakışmaz.
+- **Yönetim → Eşitleme ve Güncelleme**: durum, Şimdi eşitle, *Bu telefondaki tüm verileri yeniden gönder*, Çıkış, sürüm denetimi.
+- Firestore kuralları: `firestore.rules` dosyasını Firebase konsolu → Firestore Database → Kurallar'a yapıştırın.
+
+## Güncelleme
+
+`main` dalına her gönderimde GitHub Actions APK derler ve **Release** olarak yayınlar (v1.0.11'den itibaren). Uygulama açılışta son sürümü denetler; yeni sürüm varsa indirme bağlantısını açar. Aynı imza (`imza/debug.keystore`) kullanıldığı için üst üste kurulur, veriler silinmez.
+
+## WhatsApp Otomatik
+
+WhatsApp → **WhatsApp Otomatik**: bildirim erişimi izni verilir, takip edilecek sohbetler seçilir. Seçili sohbetlerden gelen mesajlar uygulama kapalıyken de yakalanır (`android_ek/kotlin/WaDinleyici.kt`); **Eşitle** ile son 90 günün tutarlı mesajları tahsilat/ödeme/gider olarak işlenir.
+
+`android/` klasörü depoda tutulmaz; derlemede `flutter create` ile oluşturulur ve `android_ek/` içindeki Kotlin dosyaları kopyalanır.
