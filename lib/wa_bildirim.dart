@@ -93,17 +93,12 @@ class _WaOtomatikState extends State<WaOtomatik> with WidgetsBindingObserver {
     });
   }
 
-  /// Eski (90 günden önceki) yakalanmış mesajları siler.
-  Future<void> temizle() async {
-    final d = await DB.db;
-    final sinir = DateTime.now().subtract(const Duration(days: gun)).millisecondsSinceEpoch;
-    await d.delete('wa_mesaj', where: 'zaman<?', whereArgs: [sinir]);
-  }
+  /// İşlenen mesajları listeden kaldırır.
+  void temizle() => setState(() => _liste.removeWhere((m) => m.aktarildi));
 
   /// Yakalanan mesajları alır; son 90 günün işlenmemiş mesajlarını listeler.
   Future<void> esitle() async {
     final yeni = await WaKanal.mesajlar();
-    await temizle();
     final d = await DB.db;
     final l = await DB.q('SELECT * FROM wa_mesaj WHERE zaman>=? ORDER BY zaman', [DateTime.now().subtract(const Duration(days: gun)).millisecondsSinceEpoch]);
     final out = <WaMesaj>[];
@@ -234,9 +229,11 @@ class _WaOtomatikState extends State<WaOtomatik> with WidgetsBindingObserver {
         n++;
       }
       await d.insert('aktarim_hash', {'h': m.anahtar}, conflictAlgorithm: ConflictAlgorithm.ignore);
+      m.aktarildi = true;
+      m.secili = false;
     }
     if (!mounted) return;
-    setState(() => _liste.removeWhere((m) => secilen.contains(m)));
+    temizle();
     mesaj(context, '$n işlem, $not not aktarıldı');
   }
 
@@ -256,7 +253,10 @@ class _WaOtomatikState extends State<WaOtomatik> with WidgetsBindingObserver {
           child: ListTile(
             leading: Icon(izin ? Icons.notifications_active : Icons.notifications_off, color: izin ? Colors.green : Colors.orange),
             title: const Text('Otomatik Takip ve Eşitle'),
-            subtitle: Text(izin ? 'Bildirim izni verildi' : 'Bildirim izni gerekli\nAçılan listede "Ön Muhasebe"yi bulup izin verin, sonra geri dönün.'),
+            subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(izin ? 'Bildirim izni verildi' : 'Bildirim izni gerekli'),
+              if (!izin) const Text('Açılan listede "Ön Muhasebe"yi bulup izin verin, sonra geri dönün.', style: TextStyle(fontSize: 12)),
+            ]),
             trailing: izin ? null : FilledButton(onPressed: WaKanal.izinAc, child: const Text('İzin ver')),
           ),
         ),
@@ -270,18 +270,17 @@ class _WaOtomatikState extends State<WaOtomatik> with WidgetsBindingObserver {
                   : 'Seçili sohbetlerden gelen mesajlar uygulama kapalıyken de kaydediliyor.'),
           trailing: izin ? IconButton(icon: const Icon(Icons.add), onPressed: sohbetEkle) : null,
         ),
-        if (takip.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Wrap(spacing: 6, runSpacing: 4, children: [
-              for (final s in takip)
-                InputChip(
-                    label: Text(sohbetler[s] == null ? s : '$s (${sohbetler[s]} mesaj)'),
-                    onDeleted: () async {
-                      await WaKanal.takipAyarla(takip.where((x) => x != s).toList());
-                      yukle();
-                    }),
-            ]),
+        for (final s in takip)
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.chat_bubble_outline),
+            title: Text(sohbetler[s] == null ? s : '$s (${sohbetler[s]} mesaj)'),
+            trailing: IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () async {
+                  await WaKanal.takipAyarla(takip.where((x) => x != s).toList());
+                  yukle();
+                }),
           ),
         const Padding(
           padding: EdgeInsets.all(12),

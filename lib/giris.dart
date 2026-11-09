@@ -107,13 +107,6 @@ class _GirisEkraniState extends State<GirisEkrani> {
     }
   }
 
-  Future<void> devam() async {
-    if (!await onay(context, 'Girişsiz kullanımda veriler sadece bu telefonda kalır, diğer telefonlarla paylaşılmaz. Devam edilsin mi?')) return;
-    await DB.ayarYaz('giris', 'yok');
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const AnaMenu()), (_) => false);
-  }
-
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: Navigator.canPop(context) ? AppBar(title: const Text('Giriş')) : null,
@@ -152,7 +145,13 @@ class _GirisEkraniState extends State<GirisEkrani> {
                 TextButton(onPressed: sifreSifirla, child: const Text('Şifremi unuttum')),
                 const Divider(height: 32),
                 if (!Navigator.canPop(context))
-                  OutlinedButton.icon(onPressed: devam, icon: const Icon(Icons.phone_android), label: const Text('Girişsiz devam et (sadece bu telefon)')),
+                  OutlinedButton.icon(
+                      onPressed: () async {
+                        if (!await onay(context, 'Girişsiz kullanımda veriler sadece bu telefonda kalır, diğer telefonlarla paylaşılmaz. Devam edilsin mi?')) return;
+                        await DB.ayarYaz('giris', 'yok');
+                        if (!context.mounted) return;
+                        Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const AnaMenu()), (_) => false);
+                      }, icon: const Icon(Icons.phone_android), label: const Text('Girişsiz devam et (sadece bu telefon)')),
                 const SizedBox(height: 12),
                 const Text('Kullanıcılar yönetici tarafından eklenir. Aynı hesapla giren tüm telefonlar aynı verileri görür.',
                     textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
@@ -207,16 +206,6 @@ class _SenkronEkraniState extends State<SenkronEkrani> {
     yukle();
   }
 
-  Future<void> hepsi() async {
-    try {
-      final n = await Senkron.gonder(zorla: true);
-      if (mounted) mesaj(context, '$n kayıt gönderim sırasına alındı');
-    } catch (e) {
-      if (mounted) mesaj(context, 'Gönderilemedi: $e');
-    }
-    yukle();
-  }
-
   Future<void> cikis() async {
     if (!await onay(context, 'Çıkış yapılsın mı? Veriler telefonda kalır.')) return;
     await Senkron.durdur();
@@ -253,7 +242,15 @@ class _SenkronEkraniState extends State<SenkronEkrani> {
                 leading: const Icon(Icons.cloud_upload),
                 title: const Text('Bu telefondaki tüm verileri yeniden gönder'),
                 subtitle: const Text('Girişten önce bu telefonda girilmiş kayıtlar buluta gitmediyse'),
-                onTap: hepsi,
+                onTap: () async {
+                  try {
+                    final n = await Senkron.gonder(zorla: true);
+                    if (context.mounted) mesaj(context, '$n kayıt gönderim sırasına alındı');
+                  } catch (e) {
+                    if (context.mounted) mesaj(context, 'Gönderilemedi: $e');
+                  }
+                  yukle();
+                },
               ),
               ListTile(leading: const Icon(Icons.logout), title: const Text('Çıkış yap'), onTap: cikis),
             ] else if (Senkron.acik)

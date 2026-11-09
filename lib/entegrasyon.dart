@@ -243,8 +243,7 @@ class _PortalWebState extends State<PortalWeb> {
 
   Widget bulguPaneli(_Bulgu g) {
     final n = g.tablo.length - baslikSatiriBul(g.tablo) - 1;
-    return Material(
-      elevation: 8,
+    return ColoredBox(
       color: Theme.of(context).colorScheme.secondaryContainer,
       child: SafeArea(
         top: false,
@@ -255,7 +254,16 @@ class _PortalWebState extends State<PortalWeb> {
             Text(g.hedef != null ? '$n satırlık tablo bulundu' : 'Olduğu gibi saklansın mı ya da bir bölüme aktarılsın mı?', style: const TextStyle(fontSize: 12)),
             Wrap(spacing: 4, children: [
               if (g.hedef != null) FilledButton(onPressed: () => bulguAktar(g), child: const Text('Hızlı aktar')),
-              TextButton(onPressed: () => kontrolEdipAktar(g), child: const Text('Kontrol edip aktar')),
+              TextButton(
+                  onPressed: () {
+                    setState(() => bulgu = null);
+                    Navigator.push<bool>(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => EslestirmeEkrani(
+                                satirlar: g.tablo, kaynak: '${widget.portal['ad']}', portalId: widget.portal['id'] as int, varsayilanHedef: g.hedef?.kod ?? _varsayilan())));
+                  },
+                  child: const Text('Kontrol edip aktar')),
               TextButton(
                   onPressed: () => setState(() {
                         _yoksayilan.add(g.tablo.first.join('|'));
@@ -284,19 +292,10 @@ class _PortalWebState extends State<PortalWeb> {
       ),
     );
     if (ok != true) return;
-    final s = await hedefeAktar(h.kod, kayitlar, kaynak: '${widget.portal['ad']}');
+    final s = await hedefeAktar(h.kod, kayitlar, kaynak: '${widget.portal['ad']}', atla: true);
     if (!mounted) return;
     setState(() => bulgu = null);
     mesaj(context, s.toString());
-  }
-
-  Future<void> kontrolEdipAktar(_Bulgu g) async {
-    final hedef = g.hedef?.kod ?? _varsayilan();
-    setState(() => bulgu = null);
-    await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(
-            builder: (_) => EslestirmeEkrani(satirlar: g.tablo, kaynak: '${widget.portal['ad']}', portalId: widget.portal['id'] as int, varsayilanHedef: hedef)));
   }
 
   Future<void> tabloSec() async {
