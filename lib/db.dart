@@ -11,12 +11,71 @@ class DB {
 
   static Future<Database> _ac() async {
     final yol = p.join(await getDatabasesPath(), 'on_muhasebe.db');
-    return openDatabase(yol, version: 1, onCreate: (d, v) async {
-      for (final s in _sema) {
-        await d.execute(s);
-      }
-      await _baslangic(d);
-    });
+    return openDatabase(
+      yol,
+      version: surum,
+      onCreate: (d, v) async {
+        for (final s in _sema) {
+          await d.execute(s);
+        }
+        await _baslangic(d);
+        await _ekTablolar(d);
+      },
+      onUpgrade: (d, eski, yeni) => _ekTablolar(d),
+      // Daha yeni bir sürümden geri dönülürse veriyi silme, olduğu gibi kullan.
+      onDowngrade: (d, eski, yeni) => _ekTablolar(d),
+      onOpen: _ekTablolar,
+    );
+  }
+
+  /// Veritabanı şema sürümü. 1.0.10'dan üst üste kurulumda tablolar korunur,
+  /// eksik olanlar (_ekTablolar) eklenir.
+  static const surum = 20;
+
+  /// Bulutla eşitlenen tablolar ve anahtar sütunları.
+  static const esitlenen = <String, String>{
+    'sirket': 'id', 'cari': 'id', 'cari_hareket': 'id', 'depo': 'id', 'urun': 'id',
+    'stok_hareket': 'id', 'recete': 'id', 'recete_kalem': 'id', 'uretim_emri': 'id',
+    'belge': 'id', 'belge_satir': 'id', 'hesap': 'id', 'finans_hareket': 'id',
+    'cek_senet': 'id', 'portal': 'id', 'serbest_tablo': 'id', 'notlar': 'id',
+    'aktarim_hash': 'h', 'wa_mesaj': 'anahtar',
+  };
+
+  /// 1.0.0 sonrası eklenen tablolar (ayar, değişiklik kaydı, WhatsApp mesajları)
+  /// ve değişiklikleri yakalayan tetikleyiciler. Her açılışta güvenle çalışır.
+  static Future<void> _ekTablolar(Database d) async {
+    await d.execute('CREATE TABLE IF NOT EXISTS ayar(k TEXT PRIMARY KEY, v TEXT)');
+    await d.execute('CREATE TABLE IF NOT EXISTS degisiklik(id INTEGER PRIMARY KEY AUTOINCREMENT, tablo TEXT, kayit_id INTEGER, sil INTEGER DEFAULT 0)');
+    try {
+      await d.execute('ALTER TABLE degisiklik ADD COLUMN anahtar TEXT');
+    } catch (_) {/* sütun zaten var */}
+    await d.execute('UPDATE degisiklik SET anahtar=CAST(kayit_id AS TEXT) WHERE anahtar IS NULL AND kayit_id IS NOT NULL');
+    await d.execute('CREATE TABLE IF NOT EXISTS wa_mesaj(anahtar TEXT PRIMARY KEY, sohbet TEXT, kisi TEXT, metin TEXT, zaman INTEGER)');
+    // Tetikleyiciler sadece giriş yapılmışken (ayar esitle=1) kayıt tutar.
+    const kosul = "(SELECT v FROM ayar WHERE k='esitle')='1'";
+    for (final e in esitlenen.entries) {
+      final t = e.key, k = e.value;
+      final idMi = k == 'id';
+      String ekle(String kaynak, int sil) =>
+          "INSERT INTO degisiklik(tablo, kayit_id, anahtar, sil) VALUES('$t', ${idMi ? '$kaynak.id' : 'NULL'}, CAST($kaynak.$k AS TEXT), $sil);";
+      await d.execute('CREATE TRIGGER IF NOT EXISTS es_${t}_i AFTER INSERT ON $t WHEN $kosul BEGIN ${ekle('NEW', 0)} END');
+      await d.execute('CREATE TRIGGER IF NOT EXISTS es_${t}_u AFTER UPDATE ON $t WHEN $kosul BEGIN ${ekle('NEW', 0)} END');
+      await d.execute('CREATE TRIGGER IF NOT EXISTS es_${t}_d AFTER DELETE ON $t WHEN $kosul BEGIN ${ekle('OLD', 1)} END');
+    }
+  }
+
+  static Future<String?> ayarAl(String k) async {
+    final r = await tek('SELECT v FROM ayar WHERE k=?', [k]);
+    return r?['v'] as String?;
+  }
+
+  static Future<void> ayarYaz(String k, String? v) async {
+    final d = await db;
+    if (v == null) {
+      await d.delete('ayar', where: 'k=?', whereArgs: [k]);
+    } else {
+      await d.insert('ayar', {'k': k, 'v': v}, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
   }
 
   static const _sema = [
@@ -101,7 +160,20 @@ class DB {
     return r.isEmpty ? null : r.first;
   }
 
-  static Future<int> ekle(String t, Map<String, Object?> m) async => (await db).insert(t, m);
+  static Future<int> ekle(String t, Map<String, Object?> m) async => (await db).insert(t, idli(m));
+
+  static int _sonId = 0;
+
+  /// Telefonlar arasında çakışmayan kayıt numarası (zamana dayalı).
+  /// Birden çok telefon aynı anda kayıt girse de aynı numara oluşmaz.
+  static int yeniId() {
+    final n = DateTime.now().microsecondsSinceEpoch;
+    _sonId = n > _sonId ? n : _sonId + 1;
+    return _sonId;
+  }
+
+  /// Haritada id yoksa yeni bir id ekler.
+  static Map<String, Object?> idli(Map<String, Object?> m) => m['id'] == null ? {...m, 'id': yeniId()} : m;
 
   static Future<int> guncelle(String t, Map<String, Object?> m, int id) async =>
       (await db).update(t, m, where: 'id=?', whereArgs: [id]);

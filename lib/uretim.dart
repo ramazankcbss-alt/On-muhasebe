@@ -84,14 +84,14 @@ class _ReceteFormState extends State<ReceteForm> {
       final m = {'ad': ad.text.trim().isEmpty ? urun!['ad'] : ad.text.trim(), 'urun_id': urun!['id'], 'miktar': sy(miktar.text) == 0 ? 1 : sy(miktar.text)};
       int id;
       if (widget.id == null) {
-        id = await tx.insert('recete', m);
+        id = await tx.insert('recete', DB.idli(m));
       } else {
         id = widget.id!;
         await tx.update('recete', m, where: 'id=?', whereArgs: [id]);
         await tx.delete('recete_kalem', where: 'recete_id=?', whereArgs: [id]);
       }
       for (final k in kalemler) {
-        await tx.insert('recete_kalem', {'recete_id': id, 'urun_id': k['urun_id'], 'miktar': k['miktar']});
+        await tx.insert('recete_kalem', {'id': DB.yeniId(), 'recete_id': id, 'urun_id': k['urun_id'], 'miktar': k['miktar']});
       }
     });
     if (mounted) Navigator.pop(context);

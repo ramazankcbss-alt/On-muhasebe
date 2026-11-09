@@ -1,7 +1,7 @@
 name: on_muhasebe
 description: Kones Mühendislik ön muhasebe (EBS Ticari benzeri) Android uygulaması
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.11+11
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -18,6 +18,13 @@ dependencies:
   file_picker: ^8.1.7
   share_plus: ^10.1.4
   webview_flutter: ^4.10.0
+  # Bulut eşitleme (giriş + Firestore)
+  firebase_core: '>=3.6.0 <6.0.0'
+  firebase_auth: '>=5.3.0 <8.0.0'
+  cloud_firestore: '>=5.4.0 <8.0.0'
+  # Güncelleme denetimi
+  package_info_plus: '>=8.0.0 <11.0.0'
+  url_launcher: ^6.3.0
 
 flutter:
   uses-material-design: true

@@ -6,12 +6,15 @@ import 'cari.dart';
 import 'cek.dart';
 import 'db.dart';
 import 'entegrasyon.dart';
+import 'guncelleme.dart';
 import 'hizli.dart';
 import 'ortak.dart';
 import 'raporlar.dart';
+import 'senkron.dart';
 import 'sirket.dart';
 import 'uretim.dart';
 import 'urun.dart';
+import 'wa_bildirim.dart';
 import 'whatsapp.dart';
 
 class MI {
@@ -194,6 +197,7 @@ final moduller = <Modul>[
     MI('En Çok Satış Yapılan 20 Müşteri', Icons.emoji_events, () => enCok(true), ayirac: true),
     MI('En Çok Satış Yapılan 20 Ürün', Icons.star, () => enCok(false)),
     MI('Şirket Bilgisi', Icons.business, () => const SirketBilgisi(), ayirac: true),
+    MI('Eşitleme ve Güncelleme', Icons.cloud_sync, () => const SenkronEkrani()),
   ]),
   Modul('Veri Aktar', Icons.upload_file, Colors.deepOrange, [
     MI('Excel / CSV Yükle', Icons.upload_file, () => const VeriAktar()),
@@ -212,7 +216,8 @@ final moduller = <Modul>[
     MI('DİPOS IV', Icons.architecture, () => _portal('DİPOS IV')),
   ]),
   Modul('WhatsApp', Icons.chat, const Color(0xFF25D366), [
-    MI('Sohbetten Veri Al', Icons.chat, () => const WhatsappAktar()),
+    MI('WhatsApp Otomatik', Icons.mark_chat_unread, () => const WaOtomatik()),
+    MI('Sohbetten Veri Al (dışa aktarma)', Icons.chat, () => const WhatsappAktar()),
     MI('Notlar', Icons.sticky_note_2, () => const NotListesi()),
   ]),
 ];
@@ -250,6 +255,14 @@ class _AnaMenuState extends State<AnaMenu> {
   void initState() {
     super.initState();
     yukle();
+    Senkron.yenilendi.addListener(yukle);
+    WidgetsBinding.instance.addPostFrameCallback((_) => Guncelleme.denetle(context));
+  }
+
+  @override
+  void dispose() {
+    Senkron.yenilendi.removeListener(yukle);
+    super.dispose();
   }
 
   Future<void> yukle() async {
@@ -310,6 +323,14 @@ class _AnaMenuState extends State<AnaMenu> {
           Text(firma, style: const TextStyle(fontSize: 12)),
         ]),
         actions: [
+          IconButton(
+              icon: Icon(Senkron.kullanici == null ? Icons.cloud_off : Icons.cloud_done),
+              tooltip: 'Eşitleme ve Güncelleme',
+              onPressed: () async {
+                await Navigator.push(context, MaterialPageRoute(builder: (_) => const SenkronEkrani()));
+                if (mounted) setState(() {});
+                yukle();
+              }),
           IconButton(
               icon: const Icon(Icons.business),
               tooltip: 'Şirket Bilgisi',

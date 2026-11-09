@@ -2,7 +2,6 @@ name: APK Derle
 
 on:
   push:
-    branches: [main, master]
   workflow_dispatch:
 
 jobs:
@@ -10,6 +9,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      # Eski depoda v1.0.10'a kadar çıkıldı; numaralar oradan devam eder.
+      SURUM_NO: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
 
@@ -23,6 +25,12 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Sürüm numarası
+        run: |
+          N=$((SURUM_NO + 10))
+          echo "KOD=$N" >> $GITHUB_ENV
+          echo "SURUM=1.0.$N" >> $GITHUB_ENV
+
       - name: Android proje dosyalarını oluştur
         run: |
           if [ ! -d android ]; then
@@ -32,6 +40,16 @@ jobs:
           M=android/app/src/main/AndroidManifest.xml
           grep -q 'android.permission.INTERNET' $M || sed -i '0,/<application/s##<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' $M
           sed -i 's#android:label="on_muhasebe"#android:label="Ön Muhasebe"#' $M
+          # WhatsApp bildirim dinleyici servisi
+          grep -q 'WaDinleyici' $M || sed -i 's#</application>#    <service android:name=".WaDinleyici" android:label="Ön Muhasebe WhatsApp" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true">\n            <intent-filter>\n                <action android:name="android.service.notification.NotificationListenerService"/>\n            </intent-filter>\n        </service>\n    </application>#' $M
+          # Kotlin dosyaları (MainActivity + WaDinleyici)
+          K=android/app/src/main/kotlin/com/kones/on_muhasebe
+          mkdir -p $K
+          cp android_ek/kotlin/*.kt $K/
+          # Firebase en az Android 7 (API 24) ister
+          G=android/app/build.gradle.kts
+          [ -f $G ] && sed -i 's/minSdk = flutter.minSdkVersion/minSdk = maxOf(24, flutter.minSdkVersion)/' $G || true
+          cat $M
 
       - name: Sabit imza (güncellemeler üst üste kurulabilsin)
         env:
@@ -42,11 +60,19 @@ jobs:
           elif [ -f imza/debug.keystore ]; then cp imza/debug.keystore ~/.android/debug.keystore; fi
 
       - run: flutter pub get
-      - run: flutter build apk --release
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - run: flutter build apk --release --build-name=$SURUM --build-number=$KOD
+
+      - name: APK'yı sakla
+        uses: actions/upload-artifact@v4
+        with:
+          name: on-muhasebe-${{ env.SURUM }}
+          path: build/app/outputs/flutter-apk/app-release.apk
 
       - name: Release olarak yayınla
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: Ön Muhasebe v1.0.${{ github.run_number }}
+          tag_name: v${{ env.SURUM }}
+          name: Ön Muhasebe v${{ env.SURUM }}
           files: build/app/outputs/flutter-apk/app-release.apk

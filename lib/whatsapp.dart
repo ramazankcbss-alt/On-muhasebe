@@ -13,8 +13,9 @@ class WaMesaj {
   String metin;
   double? tutar;
   bool secili = false, aktarildi = false;
-  WaMesaj(this.tarih, this.saat, this.kisi, this.metin);
-  String get anahtar => 'wa|$tarih|$saat|$kisi|${metin.length > 200 ? metin.substring(0, 200) : metin}';
+  final String? _anahtar;
+  WaMesaj(this.tarih, this.saat, this.kisi, this.metin, {String? anahtar}) : _anahtar = anahtar;
+  String get anahtar => _anahtar ?? 'wa|$tarih|$saat|$kisi|${metin.length > 200 ? metin.substring(0, 200) : metin}';
 }
 
 final _satirRe = RegExp(r'^‎?\[?(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})[,\s]+(\d{1,2}:\d{2})(?::\d{2})?\]?\s*(?:-\s*)?(.*)$');
@@ -54,6 +55,83 @@ List<WaMesaj> sohbetCoz(String metin) {
   }
   return out;
 }
+
+/// Seçilen WhatsApp mesajlarını tahsilat/ödeme/gider/not olarak işler.
+/// İşlenen mesajlar aktarim_hash'e yazılır; bir daha işlenmez (diğer telefonlara da eşitlenir).
+Future<void> waMesajlariIsle(BuildContext context, List<WaMesaj> secilen) async {
+  const secenekler = {
+    'cariden_tahsilat': 'Tahsilat (cariden, kasaya)',
+    'gelen_havale': 'Tahsilat (cariden, bankaya)',
+    'cariye_odeme': 'Ödeme (cariye, kasadan)',
+    'giden_havale': 'Ödeme (cariye, bankadan)',
+    'borc_dekont': 'Borç dekontu (cari bize borçlandı)',
+    'alacak_dekont': 'Alacak dekontu (biz cariye borçlandık)',
+    'diger_odeme': 'Gider (kasadan)',
+    'diger_tahsilat': 'Diğer gelir (kasaya)',
+    'not': 'Sadece not olarak kaydet',
+  };
+  String kod = 'cariden_tahsilat';
+  bool gonderenCari = true;
+  Map<String, Object?>? cari;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (d) => StatefulBuilder(
+      builder: (d, ss) => AlertDialog(
+        title: Text('${secilen.length} mesaj nasıl işlensin?'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            DropdownButtonFormField<String>(
+              value: kod,
+              isExpanded: true,
+              items: secenekler.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
+              onChanged: (v) => ss(() => kod = v!),
+            ),
+            if (kod != 'not' && islemler[kod]!.cari != 0) ...[
+              RadioListTile<bool>(value: true, groupValue: gonderenCari, title: const Text('Gönderen kişiyi cari olarak kullan'), onChanged: (v) => ss(() => gonderenCari = true)),
+              RadioListTile<bool>(value: false, groupValue: gonderenCari, title: Text(cari == null ? 'Tek cari seç' : 'Cari: ${cari!['ad']}'), onChanged: (v) async {
+                final c = await cariSec(d);
+                ss(() {
+                  cari = c;
+                  gonderenCari = c == null;
+                });
+              }),
+            ],
+            const Padding(padding: EdgeInsets.only(top: 8), child: Text('Tutar mesajdan okunur; tutarı olmayan mesajlar not olarak kaydedilir.', style: TextStyle(fontSize: 12))),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Vazgeç')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Aktar')),
+        ],
+      ),
+    ),
+  );
+  if (ok != true) return;
+  final d = await DB.db;
+  int n = 0, not = 0;
+  for (final m in secilen) {
+    if (m.aktarildi) continue;
+    final kisa = m.metin.length > 120 ? '${m.metin.substring(0, 120)}…' : m.metin;
+    if (kod == 'not' || m.tutar == null) {
+      await DB.ekle('notlar', {'tarih': m.tarih, 'kaynak': 'WhatsApp', 'kisi': m.kisi, 'metin': m.metin});
+      not++;
+    } else {
+      final t = islemler[kod]!;
+      int? cariId;
+      if (t.cari != 0) cariId = gonderenCari ? await Servis.cariBulEkle(m.kisi) : cari?['id'] as int?;
+      int? hesap;
+      if (t.hesap != 0) hesap = await Servis.ilkHesap(t.hesapTip ?? 'kasa');
+      await Servis.islemKaydet(kod, hesap: hesap, cari: cariId, tarih: m.tarih, tutar: m.tutar!, aciklama: 'WhatsApp ${m.kisi}: $kisa', kategori: t.kategori ? 'WhatsApp' : null, kaynak: 'WhatsApp');
+      n++;
+    }
+    await d.insert('aktarim_hash', {'h': m.anahtar}, conflictAlgorithm: ConflictAlgorithm.ignore);
+    m.aktarildi = true;
+    m.secili = false;
+  }
+  if (!context.mounted) return;
+  mesaj(context, '$n işlem, $not not aktarıldı');
+}
+
 
 class WhatsappAktar extends StatefulWidget {
   const WhatsappAktar({super.key});
@@ -102,78 +180,8 @@ class _WhatsappAktarState extends State<WhatsappAktar> {
   Future<void> aktar() async {
     final secilen = mesajlar.where((m) => m.secili).toList();
     if (secilen.isEmpty) return mesaj(context, 'Önce mesaj seçin');
-    const secenekler = {
-      'cariden_tahsilat': 'Tahsilat (cariden, kasaya)',
-      'gelen_havale': 'Tahsilat (cariden, bankaya)',
-      'cariye_odeme': 'Ödeme (cariye, kasadan)',
-      'giden_havale': 'Ödeme (cariye, bankadan)',
-      'borc_dekont': 'Borç dekontu (cari bize borçlandı)',
-      'alacak_dekont': 'Alacak dekontu (biz cariye borçlandık)',
-      'diger_odeme': 'Gider (kasadan)',
-      'diger_tahsilat': 'Diğer gelir (kasaya)',
-      'not': 'Sadece not olarak kaydet',
-    };
-    String kod = 'cariden_tahsilat';
-    bool gonderenCari = true;
-    Map<String, Object?>? cari;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (d) => StatefulBuilder(
-        builder: (d, ss) => AlertDialog(
-          title: Text('${secilen.length} mesaj nasıl işlensin?'),
-          content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              DropdownButtonFormField<String>(
-                value: kod,
-                isExpanded: true,
-                items: secenekler.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
-                onChanged: (v) => ss(() => kod = v!),
-              ),
-              if (kod != 'not' && islemler[kod]!.cari != 0) ...[
-                RadioListTile<bool>(value: true, groupValue: gonderenCari, title: const Text('Gönderen kişiyi cari olarak kullan'), onChanged: (v) => ss(() => gonderenCari = true)),
-                RadioListTile<bool>(value: false, groupValue: gonderenCari, title: Text(cari == null ? 'Tek cari seç' : 'Cari: ${cari!['ad']}'), onChanged: (v) async {
-                  final c = await cariSec(d);
-                  ss(() {
-                    cari = c;
-                    gonderenCari = c == null;
-                  });
-                }),
-              ],
-              const Padding(padding: EdgeInsets.only(top: 8), child: Text('Tutar mesajdan okunur; tutarı olmayan mesajlar not olarak kaydedilir.', style: TextStyle(fontSize: 12))),
-            ]),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Vazgeç')),
-            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Aktar')),
-          ],
-        ),
-      ),
-    );
-    if (ok != true) return;
-    final d = await DB.db;
-    int n = 0, not = 0;
-    for (final m in secilen) {
-      if (m.aktarildi) continue;
-      final kisa = m.metin.length > 120 ? '${m.metin.substring(0, 120)}…' : m.metin;
-      if (kod == 'not' || m.tutar == null) {
-        await DB.ekle('notlar', {'tarih': m.tarih, 'kaynak': 'WhatsApp', 'kisi': m.kisi, 'metin': m.metin});
-        not++;
-      } else {
-        final t = islemler[kod]!;
-        int? cariId;
-        if (t.cari != 0) cariId = gonderenCari ? await Servis.cariBulEkle(m.kisi) : cari?['id'] as int?;
-        int? hesap;
-        if (t.hesap != 0) hesap = await Servis.ilkHesap(t.hesapTip ?? 'kasa');
-        await Servis.islemKaydet(kod, hesap: hesap, cari: cariId, tarih: m.tarih, tutar: m.tutar!, aciklama: 'WhatsApp ${m.kisi}: $kisa', kategori: t.kategori ? 'WhatsApp' : null, kaynak: 'WhatsApp');
-        n++;
-      }
-      await d.insert('aktarim_hash', {'h': m.anahtar}, conflictAlgorithm: ConflictAlgorithm.ignore);
-      m.aktarildi = true;
-      m.secili = false;
-    }
-    if (!mounted) return;
-    setState(() {});
-    mesaj(context, '$n işlem, $not not aktarıldı');
+    await waMesajlariIsle(context, secilen);
+    if (mounted) setState(() {});
   }
 
   @override

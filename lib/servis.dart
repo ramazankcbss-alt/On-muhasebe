@@ -127,26 +127,26 @@ class Servis {
     final g = DB.yeniGrup();
     Future<void> yap(DatabaseExecutor x) async {
       if (t.hesap != 0 && hesap != null) {
-        await x.insert('finans_hareket', {
+        await x.insert('finans_hareket', {'id': DB.yeniId(), 
           'hesap_id': hesap, 'tarih': tarih, 'tur': t.ad, 'cari_id': cari, 'kategori': kategori,
           'aciklama': aciklama, 'giris': t.hesap > 0 ? tutar : 0, 'cikis': t.hesap < 0 ? tutar : 0,
           'grup': g, 'kaynak': kaynak,
         });
       }
       if (t.karsi != 0 && karsiHesap != null) {
-        await x.insert('finans_hareket', {
+        await x.insert('finans_hareket', {'id': DB.yeniId(), 
           'hesap_id': karsiHesap, 'tarih': tarih, 'tur': t.ad, 'kategori': kategori, 'aciklama': aciklama,
           'giris': t.karsi > 0 ? tutar : 0, 'cikis': t.karsi < 0 ? tutar : 0, 'grup': g, 'kaynak': kaynak,
         });
       }
       if (t.cari != 0 && cari != null) {
-        await x.insert('cari_hareket', {
+        await x.insert('cari_hareket', {'id': DB.yeniId(), 
           'cari_id': cari, 'tarih': tarih, 'tur': t.ad, 'aciklama': aciklama,
           'borc': t.cari > 0 ? tutar : 0, 'alacak': t.cari < 0 ? tutar : 0, 'grup': g, 'kaynak': kaynak,
         });
       }
       if (t.karsiCari != 0 && karsiCari != null) {
-        await x.insert('cari_hareket', {
+        await x.insert('cari_hareket', {'id': DB.yeniId(), 
           'cari_id': karsiCari, 'tarih': tarih, 'tur': t.ad, 'aciklama': aciklama,
           'borc': t.karsiCari > 0 ? tutar : 0, 'alacak': t.karsiCari < 0 ? tutar : 0, 'grup': g, 'kaynak': kaynak,
         });
@@ -209,19 +209,19 @@ class Servis {
         await tx.update('belge', m, where: 'id=?', whereArgs: [id]);
         bid = id;
       } else {
-        bid = await tx.insert('belge', m);
+        bid = await tx.insert('belge', DB.idli(m));
       }
       final tarih = b['tarih'] as String;
       final depo = (b['depo_id'] as int?) ?? 1;
       final no = b['no'] ?? '';
       final stokEtkisiz = b['stok_etkisiz'] == 1;
       for (final s in temiz) {
-        await tx.insert('belge_satir', {...s, 'belge_id': bid});
+        await tx.insert('belge_satir', {'id': DB.yeniId(), ...s, 'belge_id': bid});
         final uid = s['urun_id'] as int?;
         if (uid == null || stokEtkisiz) continue;
         final mik = s['miktar'] as double;
         final birimNet = mik == 0 ? 0.0 : (s['tutar'] as double) / mik;
-        Future<void> hareket(int dep, double giris, double cikis) => tx.insert('stok_hareket', {
+        Future<void> hareket(int dep, double giris, double cikis) => tx.insert('stok_hareket', {'id': DB.yeniId(), 
               'urun_id': uid, 'depo_id': dep, 'tarih': tarih, 'tur': t.kod, 'giris': giris, 'cikis': cikis,
               'fiyat': birimNet, 'belge_id': bid, 'grup': grup, 'aciklama': '${t.ad} $no',
             });
@@ -234,7 +234,7 @@ class Servis {
       }
       final cari = b['cari_id'] as int?;
       if (t.cari != 0 && cari != null) {
-        await tx.insert('cari_hareket', {
+        await tx.insert('cari_hareket', {'id': DB.yeniId(), 
           'cari_id': cari, 'tarih': tarih, 'tur': t.ad, 'aciklama': '${t.ad} $no',
           'borc': t.cari > 0 ? genel : 0, 'alacak': t.cari < 0 ? genel : 0, 'belge_id': bid, 'grup': grup,
         });
@@ -242,13 +242,13 @@ class Servis {
       final hesap = b['hesap_id'] as int?;
       if (t.cari != 0 && (b['odeme'] ?? 'acik') != 'acik' && hesap != null) {
         final tahsil = t.cari > 0;
-        await tx.insert('finans_hareket', {
+        await tx.insert('finans_hareket', {'id': DB.yeniId(), 
           'hesap_id': hesap, 'tarih': tarih, 'tur': tahsil ? 'Tahsilat' : 'Ödeme', 'cari_id': cari,
           'kategori': t.ad, 'aciklama': '${t.ad} $no', 'giris': tahsil ? genel : 0, 'cikis': tahsil ? 0 : genel,
           'grup': grup,
         });
         if (cari != null) {
-          await tx.insert('cari_hareket', {
+          await tx.insert('cari_hareket', {'id': DB.yeniId(), 
             'cari_id': cari, 'tarih': tarih, 'tur': tahsil ? 'Tahsilat' : 'Ödeme', 'aciklama': '${t.ad} $no',
             'borc': tahsil ? 0 : genel, 'alacak': tahsil ? genel : 0, 'belge_id': bid, 'grup': grup,
           });

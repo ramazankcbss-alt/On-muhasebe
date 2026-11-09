@@ -63,17 +63,17 @@ class _CekListeState extends State<CekListe> {
       if (k['durum_grup'] != null) await DB.grupSilTx(tx, k['durum_grup'] as String);
       final aciklama = '${k['tur']} ${k['no'] ?? ''} - $s';
       if (h != null) {
-        await tx.insert('finans_hareket', {
+        await tx.insert('finans_hareket', {'id': DB.yeniId(), 
           'hesap_id': h['id'], 'tarih': bugun(), 'tur': alinan ? 'Çek/Senet Tahsil' : 'Çek/Senet Ödeme', 'cari_id': k['cari_id'],
           'aciklama': aciklama, 'giris': alinan ? tutar : 0, 'cikis': alinan ? 0 : tutar, 'grup': g,
         });
       }
       if (cr != null) {
-        await tx.insert('cari_hareket', {'cari_id': cr['id'], 'tarih': bugun(), 'tur': 'Çek Ciro', 'aciklama': aciklama, 'borc': tutar, 'alacak': 0, 'grup': g});
+        await tx.insert('cari_hareket', {'id': DB.yeniId(), 'cari_id': cr['id'], 'tarih': bugun(), 'tur': 'Çek Ciro', 'aciklama': aciklama, 'borc': tutar, 'alacak': 0, 'grup': g});
       }
       if (s.startsWith('Karşılıksız')) {
         // Ödeme geçersiz: cari hareketi tersine çevrilir
-        await tx.insert('cari_hareket', {
+        await tx.insert('cari_hareket', {'id': DB.yeniId(), 
           'cari_id': k['cari_id'], 'tarih': bugun(), 'tur': 'Karşılıksız ${k['tur']}', 'aciklama': aciklama,
           'borc': alinan ? tutar : 0, 'alacak': alinan ? 0 : tutar, 'grup': g,
         });
@@ -148,12 +148,12 @@ class _CekFormState extends State<CekForm> {
     final g = DB.yeniGrup();
     final d = await DB.db;
     await d.transaction((tx) async {
-      await tx.insert('cek_senet', {
+      await tx.insert('cek_senet', {'id': DB.yeniId(), 
         'tur': tur, 'yon': yon, 'no': no.text.trim(), 'cari_id': cari!['id'], 'banka': banka.text.trim(), 'tarih': tarih,
         'vade': vade, 'tutar': t, 'aciklama': aciklama.text.trim(), 'grup': g,
       });
       // Alınan çek: müşterinin borcu kapanır (alacak). Verilen çek: tedarikçiye borcumuz kapanır (borç).
-      await tx.insert('cari_hareket', {
+      await tx.insert('cari_hareket', {'id': DB.yeniId(), 
         'cari_id': cari!['id'], 'tarih': tarih, 'tur': '${yon == 'Alınan' ? 'Alınan' : 'Verilen'} $tur',
         'aciklama': '$tur ${no.text} vade ${gTarih(vade)}', 'borc': yon == 'Verilen' ? t : 0, 'alacak': yon == 'Alınan' ? t : 0, 'grup': g,
       });
