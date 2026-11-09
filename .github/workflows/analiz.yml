@@ -1,0 +1,34 @@
+name: Analiz
+on:
+  push:
+    branches: [analiz]
+jobs:
+  blutter:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Gereksinimler
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q python3-pyelftools python3-requests git cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev
+      - name: blutter
+        run: |
+          git clone --depth 1 https://github.com/worawit/blutter.git /tmp/blutter
+          cd /tmp/blutter
+          python3 blutter.py $GITHUB_WORKSPACE/lib /tmp/cikti 2>&1 | tail -50
+          ls -la /tmp/cikti
+      - name: Sonucu gönder
+        if: always()
+        run: |
+          cd /tmp
+          rm -rf sonuc && mkdir sonuc && cd sonuc
+          git init -q && git checkout -q --orphan analiz-sonuc
+          mkdir -p out && cp -r /tmp/cikti/* out/ 2>/dev/null || true
+          # sadece uygulama kodu ve havuz dosyaları
+          find out/asm -mindepth 1 -maxdepth 1 -type d ! -name on_muhasebe -exec rm -rf {} + 2>/dev/null || true
+          rm -rf out/ida_script out/blutter_frida.js
+          git add -A
+          git -c user.name=ci -c user.email=ci@local commit -q -m sonuc
+          git push -f https://x-access-token:${{ github.token }}@github.com/${{ github.repository }} analiz-sonuc
