@@ -107,7 +107,7 @@ class _GirisEkraniState extends State<GirisEkrani> {
     }
   }
 
-  Future<void> girissiz() async {
+  Future<void> devam() async {
     if (!await onay(context, 'Girişsiz kullanımda veriler sadece bu telefonda kalır, diğer telefonlarla paylaşılmaz. Devam edilsin mi?')) return;
     await DB.ayarYaz('giris', 'yok');
     if (!mounted) return;
@@ -152,7 +152,7 @@ class _GirisEkraniState extends State<GirisEkrani> {
                 TextButton(onPressed: sifreSifirla, child: const Text('Şifremi unuttum')),
                 const Divider(height: 32),
                 if (!Navigator.canPop(context))
-                  OutlinedButton.icon(onPressed: girissiz, icon: const Icon(Icons.phone_android), label: const Text('Girişsiz devam et (sadece bu telefon)')),
+                  OutlinedButton.icon(onPressed: devam, icon: const Icon(Icons.phone_android), label: const Text('Girişsiz devam et (sadece bu telefon)')),
                 const SizedBox(height: 12),
                 const Text('Kullanıcılar yönetici tarafından eklenir. Aynı hesapla giren tüm telefonlar aynı verileri görür.',
                     textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
@@ -234,7 +234,7 @@ class _SenkronEkraniState extends State<SenkronEkrani> {
 
   @override
   Widget build(BuildContext context) {
-    final u = Senkron.kullanici;
+    final u = Senkron.acik ? FirebaseAuth.instance.currentUser : null;
     return Scaffold(
       appBar: AppBar(title: const Text('Eşitleme ve Güncelleme')),
       body: ListView(padding: const EdgeInsets.all(8), children: [

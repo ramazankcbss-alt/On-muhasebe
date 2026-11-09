@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
 
 import 'db.dart';
 import 'ortak.dart';
+import 'servis.dart';
 import 'whatsapp.dart';
 
 /// Android tarafındaki WhatsApp bildirim dinleyicisiyle konuşur (android_ek/kotlin/WaDinleyici.kt).
@@ -55,10 +56,11 @@ class WaOtomatik extends StatefulWidget {
 }
 
 class _WaOtomatikState extends State<WaOtomatik> with WidgetsBindingObserver {
-  bool izin = false;
-  List<String> takip = [];
-  List<Map<String, Object?>> _liste = [];
   static const gun = 90;
+  bool izin = false, sadeceTutar = true;
+  List<String> takip = [];
+  List<WaMesaj> _liste = [];
+  Map<String, int> sohbetler = {};
 
   @override
   void initState() {
@@ -84,44 +86,52 @@ class _WaOtomatikState extends State<WaOtomatik> with WidgetsBindingObserver {
     try {
       t = await WaKanal.takipOku();
     } catch (_) {}
-    await WaKanal.mesajlar();
-    final sinir = DateTime.now().subtract(const Duration(days: gun)).millisecondsSinceEpoch;
-    final l = await DB.q('SELECT * FROM wa_mesaj WHERE zaman>=? ORDER BY zaman', [sinir]);
-    final islenen = (await DB.q('SELECT h FROM aktarim_hash')).map((x) => x['h']).toSet();
     if (!mounted) return;
     setState(() {
       izin = i;
       takip = t..sort();
-      _liste = l.where((x) => !islenen.contains(x['anahtar'])).toList();
     });
   }
 
-  /// Yakalanan mesajları alır ve işlenmemiş olanları listeler.
-  Future<void> esitle() async {
-    final yeni = await WaKanal.mesajlar();
-    await yukle();
-    if (!mounted) return;
-    if (yeni > 0) mesaj(context, '$yeni yeni mesaj alındı');
-    if (_liste.isEmpty) return mesaj(context, 'Henüz yakalanmış mesaj yok');
-    final l = _liste.map((x) {
-      final z = DateTime.fromMillisecondsSinceEpoch(x['zaman'] as int);
-      return WaMesaj(tarihS(z), '${z.hour.toString().padLeft(2, '0')}:${z.minute.toString().padLeft(2, '0')}', '${x['kisi']}', '${x['metin']}',
-          anahtar: '${x['anahtar']}')
-        ..tutar = tutarBul('${x['metin']}');
-    }).toList();
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => WhatsappAktar(gelen: l, baslik: 'Gelen WhatsApp Mesajları')));
-    yukle();
+  /// Eski (90 günden önceki) yakalanmış mesajları siler.
+  Future<void> temizle() async {
+    final d = await DB.db;
+    final sinir = DateTime.now().subtract(const Duration(days: gun)).millisecondsSinceEpoch;
+    await d.delete('wa_mesaj', where: 'zaman<?', whereArgs: [sinir]);
   }
 
-  Future<void> ekle() async {
+  /// Yakalanan mesajları alır; son 90 günün işlenmemiş mesajlarını listeler.
+  Future<void> esitle() async {
+    final yeni = await WaKanal.mesajlar();
+    await temizle();
+    final d = await DB.db;
+    final l = await DB.q('SELECT * FROM wa_mesaj WHERE zaman>=? ORDER BY zaman', [DateTime.now().subtract(const Duration(days: gun)).millisecondsSinceEpoch]);
+    final out = <WaMesaj>[];
+    final say = <String, int>{};
+    for (final x in l) {
+      final z = DateTime.fromMillisecondsSinceEpoch(x['zaman'] as int);
+      final m = WaMesaj(tarihS(z), '${z.hour.toString().padLeft(2, '0')}:${z.minute.toString().padLeft(2, '0')}', '${x['kisi']}', '${x['metin']}', '${x['anahtar']}')
+        ..tutar = tutarBul('${x['metin']}');
+      if ((await d.query('aktarim_hash', where: 'h=?', whereArgs: [m.anahtar])).isNotEmpty) continue;
+      out.add(m);
+      say['${x['sohbet']}'] = (say['${x['sohbet']}'] ?? 0) + 1;
+    }
+    if (!mounted) return;
+    setState(() {
+      _liste = out;
+      sohbetler = say;
+    });
+    if (yeni > 0) mesaj(context, '$yeni yeni mesaj alındı');
+  }
+
+  Future<void> sohbetEkle() async {
     final g = (await WaKanal.gorulenler()).where((s) => !takip.contains(s)).toList();
     if (!mounted) return;
     final s = await showModalBottomSheet<String>(
       context: context,
       builder: (c) => ListView(shrinkWrap: true, children: [
         const ListTile(title: Text('Takip edilecek sohbet', style: TextStyle(fontWeight: FontWeight.bold))),
-        if (g.isEmpty)
-          const ListTile(dense: true, subtitle: Text('Listede, izin verildikten sonra bildirimi gelen sohbetler görünür.')),
+        if (g.isEmpty) const ListTile(dense: true, subtitle: Text('Listede, izin verildikten sonra bildirimi gelen sohbetler görünür.')),
         for (final x in g) ListTile(leading: const Icon(Icons.chat), title: Text(x), onTap: () => Navigator.pop(c, x)),
         ListTile(leading: const Icon(Icons.edit), title: const Text('Adını elle yaz'), onTap: () => Navigator.pop(c, '')),
       ]),
@@ -148,68 +158,158 @@ class _WaOtomatikState extends State<WaOtomatik> with WidgetsBindingObserver {
     yukle();
   }
 
-  Future<void> cikar(String s) async {
-    await WaKanal.takipAyarla(takip.where((x) => x != s).toList());
-    yukle();
+  void tumunuIsaretle() => setState(() {
+        final g = _liste.where((m) => !sadeceTutar || m.tutar != null);
+        final hepsi = g.every((m) => m.secili);
+        for (final m in g) {
+          m.secili = !hepsi;
+        }
+      });
+
+  Future<void> aktar() async {
+    final secilen = _liste.where((m) => m.secili).toList();
+    if (secilen.isEmpty) return mesaj(context, 'Önce mesaj seçin');
+    const secenekler = {
+      'cariden_tahsilat': 'Tahsilat (cariden, kasaya)',
+      'gelen_havale': 'Tahsilat (cariden, bankaya)',
+      'cariye_odeme': 'Ödeme (cariye, kasadan)',
+      'giden_havale': 'Ödeme (cariye, bankadan)',
+      'borc_dekont': 'Borç dekontu (cari bize borçlandı)',
+      'alacak_dekont': 'Alacak dekontu (biz cariye borçlandık)',
+      'diger_odeme': 'Gider (kasadan)',
+      'diger_tahsilat': 'Diğer gelir (kasaya)',
+      'not': 'Sadece not olarak kaydet',
+    };
+    String kod = 'cariden_tahsilat';
+    bool gonderenCari = true;
+    Map<String, Object?>? cari;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => StatefulBuilder(
+        builder: (d, ss) => AlertDialog(
+          title: Text('${secilen.length} mesaj nasıl işlensin?'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              DropdownButtonFormField<String>(
+                value: kod,
+                isExpanded: true,
+                items: secenekler.entries.map((e) => DropdownMenuItem(value: e.key, child: Text(e.value))).toList(),
+                onChanged: (v) => ss(() => kod = v!),
+              ),
+              if (kod != 'not' && islemler[kod]!.cari != 0) ...[
+                RadioListTile<bool>(value: true, groupValue: gonderenCari, title: const Text('Gönderen kişiyi cari olarak kullan'), onChanged: (v) => ss(() => gonderenCari = true)),
+                RadioListTile<bool>(value: false, groupValue: gonderenCari, title: Text(cari == null ? 'Tek cari seç' : 'Cari: ${cari!['ad']}'), onChanged: (v) async {
+                  final c = await cariSec(d);
+                  ss(() {
+                    cari = c;
+                    gonderenCari = c == null;
+                  });
+                }),
+              ],
+              const Padding(padding: EdgeInsets.only(top: 8), child: Text('Tutar mesajdan okunur; tutarı olmayan mesajlar not olarak kaydedilir.', style: TextStyle(fontSize: 12))),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Vazgeç')),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Aktar')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    final d = await DB.db;
+    int n = 0, not = 0;
+    for (final m in secilen) {
+      final kisa = m.metin.length > 120 ? '${m.metin.substring(0, 120)}…' : m.metin;
+      if (kod == 'not' || m.tutar == null) {
+        await DB.ekle('notlar', {'tarih': m.tarih, 'kaynak': 'WhatsApp', 'kisi': m.kisi, 'metin': m.metin});
+        not++;
+      } else {
+        final t = islemler[kod]!;
+        int? cariId;
+        if (t.cari != 0) cariId = gonderenCari ? await Servis.cariBulEkle(m.kisi) : cari?['id'] as int?;
+        int? hesap;
+        if (t.hesap != 0) hesap = await Servis.ilkHesap(t.hesapTip ?? 'kasa');
+        await Servis.islemKaydet(kod, hesap: hesap, cari: cariId, tarih: m.tarih, tutar: m.tutar!, aciklama: "WhatsApp'tan ${m.kisi}: $kisa", kategori: t.kategori ? 'WhatsApp' : null, kaynak: 'WhatsApp');
+        n++;
+      }
+      await d.insert('aktarim_hash', {'h': m.anahtar}, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+    if (!mounted) return;
+    setState(() => _liste.removeWhere((m) => secilen.contains(m)));
+    mesaj(context, '$n işlem, $not not aktarıldı');
   }
 
   @override
   Widget build(BuildContext context) {
-    final sayilar = <String, int>{};
-    for (final x in _liste) {
-      sayilar['${x['sohbet']}'] = (sayilar['${x['sohbet']}'] ?? 0) + 1;
-    }
-    final tutarli = _liste.where((x) => tutarBul('${x['metin']}') != null).length;
+    final g = _liste.where((m) => !sadeceTutar || m.tutar != null).toList();
+    final secSayi = _liste.where((m) => m.secili).length;
+    final tutarli = _liste.where((m) => m.tutar != null).length;
     return Scaffold(
-      appBar: AppBar(title: const Text('WhatsApp Otomatik')),
-      floatingActionButton: izin && _liste.isNotEmpty
-          ? FloatingActionButton.extended(onPressed: esitle, icon: const Icon(Icons.sync), label: Text('Eşitle (${_liste.length})'))
-          : null,
-      body: RefreshIndicator(
-        onRefresh: yukle,
-        child: ListView(padding: const EdgeInsets.all(8), children: [
-          Card(
-            color: izin ? Colors.green[50] : Colors.orange[50],
-            child: ListTile(
-              leading: Icon(izin ? Icons.notifications_active : Icons.notifications_off, color: izin ? Colors.green : Colors.orange),
-              title: Text(izin ? 'Bildirim izni verildi' : 'Bildirim izni gerekli'),
-              subtitle: izin ? null : const Text('Açılan listede "Ön Muhasebe"yi bulup izin verin, sonra geri dönün.'),
-              trailing: izin ? null : FilledButton(onPressed: WaKanal.izinAc, child: const Text('İzin ver')),
-            ),
+      appBar: AppBar(title: const Text('WhatsApp Otomatik'), actions: [
+        if (izin) TextButton.icon(onPressed: esitle, icon: const Icon(Icons.sync), label: Text('Eşitle (${_liste.length})')),
+      ]),
+      floatingActionButton: secSayi == 0 ? null : FloatingActionButton.extended(onPressed: aktar, icon: const Icon(Icons.input), label: Text('$secSayi mesajı aktar')),
+      body: ListView(padding: const EdgeInsets.all(8), children: [
+        Card(
+          color: izin ? Colors.green[50] : Colors.orange[50],
+          child: ListTile(
+            leading: Icon(izin ? Icons.notifications_active : Icons.notifications_off, color: izin ? Colors.green : Colors.orange),
+            title: const Text('Otomatik Takip ve Eşitle'),
+            subtitle: Text(izin ? 'Bildirim izni verildi' : 'Bildirim izni gerekli\nAçılan listede "Ön Muhasebe"yi bulup izin verin, sonra geri dönün.'),
+            trailing: izin ? null : FilledButton(onPressed: WaKanal.izinAc, child: const Text('İzin ver')),
           ),
-          ListTile(
-            title: const Text('Otomatik Takip ve Eşitle', style: TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(!izin
-                ? 'Kapalı'
-                : takip.isEmpty
-                    ? 'Henüz sohbet seçilmedi. Hiçbir mesaj kaydedilmez; sadece seçtiğiniz sohbetler takip edilir.'
-                    : 'Seçili sohbetlerden gelen mesajlar uygulama kapalıyken de kaydediliyor.'),
-            trailing: izin ? IconButton(icon: const Icon(Icons.add), tooltip: 'Ekle', onPressed: ekle) : null,
+        ),
+        ListTile(
+          dense: true,
+          title: const Text('Takip edilen sohbetler', style: TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text(!izin
+              ? 'Kapalı'
+              : takip.isEmpty
+                  ? 'Henüz sohbet seçilmedi. Hiçbir mesaj kaydedilmez; sadece seçtiğiniz sohbetler takip edilir.'
+                  : 'Seçili sohbetlerden gelen mesajlar uygulama kapalıyken de kaydediliyor.'),
+          trailing: izin ? IconButton(icon: const Icon(Icons.add), onPressed: sohbetEkle) : null,
+        ),
+        if (takip.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Wrap(spacing: 6, runSpacing: 4, children: [
+              for (final s in takip)
+                InputChip(
+                    label: Text(sohbetler[s] == null ? s : '$s (${sohbetler[s]} mesaj)'),
+                    onDeleted: () async {
+                      await WaKanal.takipAyarla(takip.where((x) => x != s).toList());
+                      yukle();
+                    }),
+            ]),
           ),
-          if (takip.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Wrap(spacing: 6, runSpacing: 4, children: [
-                for (final s in takip) InputChip(label: Text(s), onDeleted: () => cikar(s)),
-              ]),
-            ),
-          const Divider(),
-          ListTile(
-            title: const Text('Gelen WhatsApp Mesajları', style: TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(_liste.isEmpty ? 'Henüz yakalanmış mesaj yok' : '$tutarli tutarlı mesaj işlenmeyi bekliyor'),
+        const Padding(
+          padding: EdgeInsets.all(12),
+          child: Text(
+              'Eşitle\'ye bastığınızda son 90 günde yakalanan mesajlar listelenir. Tutarlı mesajları seçip tahsilat, ödeme veya gider olarak işlersiniz; işlenenler bir daha gelmez ve diğer telefonlara da eşitlenir.\n\n'
+              'Not: Sadece size gelen ve bildirimi düşen mesajlar yakalanır. Sessize alınmış sohbetleri takip etmek için o sohbetin bildirimlerini açık tutun. Geçmiş mesajlar için "Sohbetten Veri Al" (dışa aktarma) kullanın.',
+              style: TextStyle(fontSize: 12)),
+        ),
+        const Divider(),
+        ListTile(
+          title: const Text('Gelen WhatsApp Mesajları', style: TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text(_liste.isEmpty ? 'Henüz yakalanmış mesaj yok' : '$tutarli tutarlı mesaj işlenmeyi bekliyor'),
+        ),
+        if (_liste.isNotEmpty)
+          Row(children: [
+            Expanded(child: SwitchListTile(dense: true, value: sadeceTutar, title: const Text('Sadece tutar içerenler'), onChanged: (v) => setState(() => sadeceTutar = v))),
+            TextButton(onPressed: tumunuIsaretle, child: const Text('Tümünü seç')),
+          ]),
+        for (final m in g.reversed)
+          CheckboxListTile(
+            value: m.secili,
+            onChanged: (v) => setState(() => m.secili = v == true),
+            title: Text(m.metin, maxLines: 3, overflow: TextOverflow.ellipsis),
+            subtitle: Text('${m.kisi} • ${gTarih(m.tarih)} ${m.saat}'),
+            secondary: m.tutar == null ? null : Chip(label: Text(para(m.tutar))),
           ),
-          for (final e in sayilar.entries)
-            ListTile(dense: true, leading: const Icon(Icons.chat_bubble_outline), title: Text("WhatsApp'tan ${e.key} (${e.value} mesaj)")),
-          const Padding(
-            padding: EdgeInsets.all(12),
-            child: Text(
-                'Eşitle\'ye bastığınızda son 90 günde yakalanan mesajlar listelenir. Tutarlı mesajları seçip tahsilat, ödeme veya gider olarak işlersiniz; işlenenler bir daha gelmez ve diğer telefonlara da eşitlenir.\n\n'
-                'Not: Sadece size gelen ve bildirimi düşen mesajlar yakalanır. Sessize alınmış sohbetleri takip etmek için o sohbetin bildirimlerini açık tutun. Geçmiş mesajlar için "Sohbetten Veri Al" (dışa aktarma) kullanın.',
-                style: TextStyle(fontSize: 12)),
-          ),
-          const SizedBox(height: 80),
-        ]),
-      ),
+        const SizedBox(height: 80),
+      ]),
     );
   }
 }

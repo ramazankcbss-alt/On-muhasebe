@@ -623,7 +623,7 @@ class VeriAktar extends StatelessWidget {
       if (c.mounted) mesaj(c, '$e'.replaceFirst('Exception: ', ''));
       return;
     }
-    final mevcut = (await DB.q("SELECT name FROM sqlite_master WHERE type='table'")).map((r) => r['name']).toSet();
+    final mevcut = (await DB.q("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name<>'android_metadata'")).map((r) => r['name']).toSet();
     final tablolar = sayfalar.keys.where((t) => mevcut.contains(t) && !DB.esitlenmez.contains(t)).toList();
     if (tablolar.isEmpty) {
       if (c.mounted) mesaj(c, 'Bu dosya bir Ön Muhasebe yedeği değil (tablo sayfası bulunamadı)');

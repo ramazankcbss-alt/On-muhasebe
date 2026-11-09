@@ -14,7 +14,7 @@ class WaMesaj {
   double? tutar;
   bool secili = false, aktarildi = false;
   final String? _anahtar;
-  WaMesaj(this.tarih, this.saat, this.kisi, this.metin, {String? anahtar}) : _anahtar = anahtar;
+  WaMesaj(this.tarih, this.saat, this.kisi, this.metin, [this._anahtar]);
   String get anahtar => _anahtar ?? 'wa|$tarih|$saat|$kisi|${metin.length > 200 ? metin.substring(0, 200) : metin}';
 }
 
@@ -57,17 +57,14 @@ List<WaMesaj> sohbetCoz(String metin) {
 }
 
 class WhatsappAktar extends StatefulWidget {
-  /// Bildirimlerden yakalanan mesajlar (WhatsApp Otomatik). Boşsa dosyadan seçilir.
-  final List<WaMesaj>? gelen;
-  final String? baslik;
-  const WhatsappAktar({super.key, this.gelen, this.baslik});
+  const WhatsappAktar({super.key});
   @override
   State<WhatsappAktar> createState() => _WhatsappAktarState();
 }
 
 class _WhatsappAktarState extends State<WhatsappAktar> {
-  late List<WaMesaj> mesajlar = widget.gelen ?? [];
-  late String dosya = widget.baslik ?? '';
+  List<WaMesaj> mesajlar = [];
+  String dosya = '';
   bool sadeceTutar = true;
   String ara = '';
 

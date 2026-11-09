@@ -29,14 +29,14 @@ class DB {
       'CREATE TABLE degisiklik(id INTEGER PRIMARY KEY AUTOINCREMENT, tablo TEXT, kayit_id INTEGER, sil INTEGER DEFAULT 0)';
 
   /// Buluta gönderilmeyen tablolar
-  static const esitlenmez = {'ayar', 'degisiklik', 'aktarim_hash', 'wa_mesaj', 'android_metadata', 'sqlite_sequence'};
+  static const esitlenmez = {'ayar', 'degisiklik', 'aktarim_hash', 'wa_mesaj'};
 
   /// Giriş yapılmışken true: her değişiklik `degisiklik` tablosuna yazılır ve buluta gönderilir.
   static bool kayitTut = false;
 
   static Future<String?> ayarOku(String k) async {
-    final r = await tek('SELECT v FROM ayar WHERE k=?', [k]);
-    return r?['v'] as String?;
+    final r = await (await db).query('ayar', where: 'k=?', whereArgs: [k]);
+    return r.isEmpty ? null : r.first['v'] as String?;
   }
 
   static Future<void> ayarYaz(String k, String? v) async {

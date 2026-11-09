@@ -254,7 +254,7 @@ class _PortalWebState extends State<PortalWeb> {
             Text(g.hedef == null ? '$n satırlık tablo bulundu' : '"${g.hedef!.ad}" verisi bulundu', style: const TextStyle(fontWeight: FontWeight.bold)),
             Text(g.hedef != null ? '$n satırlık tablo bulundu' : 'Olduğu gibi saklansın mı ya da bir bölüme aktarılsın mı?', style: const TextStyle(fontSize: 12)),
             Wrap(spacing: 4, children: [
-              if (g.hedef != null) FilledButton.tonal(onPressed: () => bulguAktar(g), child: const Text('Hızlı aktar')),
+              if (g.hedef != null) FilledButton(onPressed: () => bulguAktar(g), child: const Text('Hızlı aktar')),
               TextButton(onPressed: () => kontrolEdipAktar(g), child: const Text('Kontrol edip aktar')),
               TextButton(
                   onPressed: () => setState(() {

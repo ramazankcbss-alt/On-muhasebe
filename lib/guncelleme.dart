@@ -53,7 +53,7 @@ class Guncelleme {
         title: Text('Yeni sürüm: $son'),
         content: const Text('Güncelle\'ye dokunduğunuzda APK indirilir. İndirme bitince dosyaya dokunup "Güncelle"yi seçin. Verileriniz silinmez.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Vazgeç')),
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Sonra')),
           FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Güncelle')),
         ],
       ),

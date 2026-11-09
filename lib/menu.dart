@@ -325,7 +325,7 @@ class _AnaMenuState extends State<AnaMenu> {
         ]),
         actions: [
           IconButton(
-              icon: Icon(Senkron.kullanici == null ? Icons.cloud_off : Icons.cloud_done),
+              icon: const Icon(Icons.cloud_sync),
               tooltip: 'Eşitleme ve Güncelleme',
               onPressed: () async {
                 await Navigator.push(context, MaterialPageRoute(builder: (_) => const SenkronEkrani()));

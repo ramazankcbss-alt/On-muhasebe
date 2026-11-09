@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
-import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
+import 'package:sqflite/sqflite.dart' show ConflictAlgorithm, DatabaseExecutor;
 
 import 'db.dart';
 import 'firebase_ayar.dart';
@@ -33,10 +33,13 @@ class Senkron {
 
   static FirebaseFirestore get _fs => FirebaseFirestore.instance;
 
-  static CollectionReference<Map<String, dynamic>> _kayitlar(String tablo) =>
-      _fs.collection('firmalar').doc(firma).collection('tablolar').doc(tablo).collection('kayitlar');
+  static CollectionReference<Map<String, dynamic>> tablo(String t) =>
+      _fs.collection('firmalar').doc(firma).collection('tablolar').doc(t).collection('kayitlar');
 
-  static User? get kullanici => acik ? FirebaseAuth.instance.currentUser : null;
+  static final Map<String, Set<String>> _kolonlar = {};
+
+  static Future<Set<String>> _kolon(DatabaseExecutor x, String t) async =>
+      _kolonlar[t] ??= (await x.rawQuery('PRAGMA table_info($t)')).map((r) => '${r['name']}').toSet();
 
   static Future<void> firebaseBaslat() async {
     try {
@@ -51,7 +54,7 @@ class Senkron {
   static String? _uid;
 
   static Future<void> baslat() async {
-    final u = kullanici;
+    final u = acik ? FirebaseAuth.instance.currentUser : null;
     if (u == null || _uid == u.uid) return;
     _uid = u.uid;
     DB.kayitTut = true;
@@ -80,7 +83,7 @@ class Senkron {
     return (r?['n'] as int?) ?? 0;
   }
 
-  static Future<List<String>> _tablolar() async => (await DB.q(
+  static Future<List<String>> tablolar() async => (await DB.q(
           "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name<>'android_metadata'"))
       .map((r) => '${r['name']}')
       .where((t) => !DB.esitlenmez.contains(t))
@@ -89,12 +92,14 @@ class Senkron {
   /// Sıradaki değişiklikleri gönderir. [zorla] true ise bu telefondaki tüm kayıtlar önce sıraya alınır
   /// (girişten önce girilmiş ve buluta gitmemiş kayıtlar için). Gönderilen kayıt sayısını döner.
   static Future<int> gonder({bool zorla = false}) async {
-    if (kullanici == null) return 0;
+    if (_uid == null) return 0;
     final d = await DB.db;
     if (zorla) {
       await d.transaction((tx) async {
-        for (final t in await _tablolar()) {
-          await tx.rawInsert('INSERT INTO degisiklik(tablo, kayit_id, sil) SELECT ?, id, 0 FROM $t', [t]);
+        for (final t in await tablolar()) {
+          for (final r in await tx.query(t, columns: ['id'])) {
+            await tx.insert('degisiklik', {'tablo': t, 'kayit_id': r['id'], 'sil': 0});
+          }
         }
       });
     }
@@ -114,7 +119,7 @@ class Senkron {
         for (final x in son.values) {
           final t = '${x['tablo']}';
           final id = x['kayit_id'];
-          final ref = _kayitlar(t).doc('$id');
+          final ref = tablo(t).doc('$id');
           final r = x['sil'] == 1 ? null : await DB.tek('SELECT * FROM $t WHERE id=?', [id]);
           if (r == null) {
             batch.set(ref, {'id': id, '_sil': true, '_ts': FieldValue.serverTimestamp()});
@@ -144,10 +149,10 @@ class Senkron {
       await a.cancel();
     }
     _abonelik.clear();
-    for (final t in await _tablolar()) {
+    for (final t in await tablolar()) {
       final son = int.tryParse(await DB.ayarOku('son_$t') ?? '') ?? 0;
-      _abonelik.add(_kayitlar(t)
-          .where('_ts', isGreaterThan: Timestamp.fromDate(DateTime.fromMicrosecondsSinceEpoch(son)))
+      _abonelik.add(tablo(t)
+          .where('_ts', isGreaterThan: Timestamp.fromMillisecondsSinceEpoch(son))
           .orderBy('_ts')
           .snapshots()
           .listen((s) => yerlestir(t, s), onError: (_) => durum.value = 'hata'));
@@ -156,18 +161,17 @@ class Senkron {
 
   static Future<void> yerlestir(String t, QuerySnapshot<Map<String, dynamic>> s) async {
     final belgeler = s.docChanges
-        .where((c) => c.type != DocumentChangeType.removed && !c.doc.metadata.hasPendingWrites)
+        .where((c) => c.type != DocumentChangeType.removed)
         .map((c) => c.doc.data())
         .whereType<Map<String, dynamic>>()
         .where((x) => x['_ts'] is Timestamp)
         .toList();
     if (belgeler.isEmpty) return;
     final d = await DB.db;
-    final kolonlar = (await d.rawQuery('PRAGMA table_info($t)')).map((r) => '${r['name']}').toSet();
     var enSon = 0;
     await d.transaction((tx) async {
       for (final x in belgeler) {
-        final z = (x['_ts'] as Timestamp).toDate().microsecondsSinceEpoch;
+        final z = (x['_ts'] as Timestamp).toDate().millisecondsSinceEpoch;
         if (z > enSon) enSon = z;
         final id = x['id'];
         if (id is! int) continue;
@@ -177,7 +181,8 @@ class Senkron {
         if (x['_sil'] == true) {
           await tx.delete(t, where: 'id=?', whereArgs: [id]);
         } else {
-          final v = Map<String, Object?>.from(x)..removeWhere((k, _) => !kolonlar.contains(k));
+          final kol = await _kolon(tx, t);
+          final v = Map<String, Object?>.from(x)..removeWhere((k, _) => !kol.contains(k));
           await tx.insert(t, v, conflictAlgorithm: ConflictAlgorithm.replace);
         }
       }
