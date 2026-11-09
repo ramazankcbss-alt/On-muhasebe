@@ -150,11 +150,10 @@ class Senkron {
   /// (girişten önce girilmiş ve buluta gitmemiş kayıtlar için).
   static Future<int> hepsiniGonder() async {
     final d = await DB.db;
-    var n = 0;
     await d.transaction((tx) async {
       for (final e in DB.esitlenen.entries) {
         final idMi = e.value == 'id';
-        n += await tx.rawInsert(
+        await tx.rawInsert(
             "INSERT INTO degisiklik(tablo, kayit_id, anahtar, sil) SELECT '${e.key}', ${idMi ? 'id' : 'NULL'}, CAST(${e.value} AS TEXT), 0 FROM ${e.key}");
       }
     });

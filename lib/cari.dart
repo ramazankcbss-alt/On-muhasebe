@@ -438,7 +438,7 @@ class _CokluIslemState extends State<CokluIslem> {
           if (satirlar.isNotEmpty)
             ListTile(
                 title: const Text('Toplam', style: TextStyle(fontWeight: FontWeight.bold)),
-                trailing: Text(para(satirlar.fold(0.0, (a, s) => a + (s['tutar'] as double))))),
+                trailing: Text(para(satirlar.fold<double>(0.0, (a, s) => a + sy(s['tutar']))))),
           const Padding(padding: EdgeInsets.all(8), child: Text('Satırı silmek için uzun basın.', style: TextStyle(fontSize: 12))),
         ]),
       );
