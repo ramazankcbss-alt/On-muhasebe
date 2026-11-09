@@ -139,7 +139,7 @@ class _GirisEkraniState extends State<GirisEkrani> {
                 const SizedBox(height: 16),
                 FilledButton.icon(
                   onPressed: bekle ? null : giris,
-                  icon: bekle ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.login),
+                  icon: const Icon(Icons.login),
                   label: const Text('Giriş Yap'),
                 ),
                 TextButton(onPressed: sifreSifirla, child: const Text('Şifremi unuttum')),

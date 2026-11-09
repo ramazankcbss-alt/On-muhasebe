@@ -270,17 +270,18 @@ class _WaOtomatikState extends State<WaOtomatik> with WidgetsBindingObserver {
                   : 'Seçili sohbetlerden gelen mesajlar uygulama kapalıyken de kaydediliyor.'),
           trailing: izin ? IconButton(icon: const Icon(Icons.add), onPressed: sohbetEkle) : null,
         ),
-        for (final s in takip)
-          ListTile(
-            dense: true,
-            leading: const Icon(Icons.chat_bubble_outline),
-            title: Text(sohbetler[s] == null ? s : '$s (${sohbetler[s]} mesaj)'),
-            trailing: IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () async {
-                  await WaKanal.takipAyarla(takip.where((x) => x != s).toList());
-                  yukle();
-                }),
+        if (takip.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Wrap(spacing: 6, runSpacing: 4, children: [
+              for (final s in takip)
+                InputChip(
+                    label: Text(sohbetler[s] == null ? s : '$s (${sohbetler[s]} mesaj)'),
+                    onDeleted: () async {
+                      await WaKanal.takipAyarla(takip.where((x) => x != s).toList());
+                      yukle();
+                    }),
+            ]),
           ),
         const Padding(
           padding: EdgeInsets.all(12),
