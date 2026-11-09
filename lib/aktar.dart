@@ -573,7 +573,7 @@ class VeriAktar extends StatelessWidget {
   }
 
   Future<void> yedek(BuildContext c) async {
-    const tablolar = ['sirket', 'cari', 'cari_hareket', 'urun', 'stok_hareket', 'depo', 'belge', 'belge_satir', 'hesap', 'finans_hareket', 'cek_senet', 'recete', 'recete_kalem', 'uretim_emri', 'notlar', 'portal'];
+    final tablolar = DB.esitlenen.keys.where((t) => t != 'serbest_tablo').toList();
     final sayfalar = <String, (List<String>, List<List<Object?>>)>{};
     for (final t in tablolar) {
       final r = await DB.q('SELECT * FROM $t');
@@ -581,6 +581,58 @@ class VeriAktar extends StatelessWidget {
       sayfalar[t] = (r.first.keys.toList(), r.map((x) => x.values.toList()).toList());
     }
     await excelCokluPaylas('Yedek_${bugun()}', sayfalar);
+  }
+
+  /// "Tüm verileri Excel olarak yedekle" ile alınan dosyayı bu telefona geri yükler.
+  /// Her sayfa bir tablodur; aynı numaralı kayıtların üzerine yazılır.
+  Future<void> geriYukle(BuildContext c) async {
+    final r = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['xlsx'], withData: true);
+    if (r == null || r.files.isEmpty || r.files.first.bytes == null || !c.mounted) return;
+    final Map<String, List<List<String>>> sayfalar;
+    try {
+      sayfalar = dosyaOku(r.files.first.name, r.files.first.bytes!);
+    } catch (e) {
+      if (c.mounted) mesaj(c, '$e'.replaceFirst('Exception: ', ''));
+      return;
+    }
+    final tablolar = sayfalar.keys.where((t) => DB.esitlenen.containsKey(t)).toList();
+    if (tablolar.isEmpty) {
+      if (c.mounted) mesaj(c, 'Bu dosya bir Ön Muhasebe yedeği değil (tablo sayfası bulunamadı)');
+      return;
+    }
+    final toplam = tablolar.fold<int>(0, (a, t) => a + sayfalar[t]!.length - 1);
+    if (!c.mounted ||
+        !await onay(c, '${tablolar.length} tablo, $toplam kayıt bu telefona yüklenecek. Aynı numaralı kayıtların üzerine yazılır, diğer kayıtlar silinmez. Devam edilsin mi?')) {
+      return;
+    }
+    final d = await DB.db;
+    var n = 0;
+    await d.transaction((tx) async {
+      for (final t in tablolar) {
+        final tip = {for (final x in await tx.rawQuery('PRAGMA table_info($t)')) '${x['name']}': '${x['type']}'.toUpperCase()};
+        final satirlar = sayfalar[t]!;
+        final baslik = satirlar.first;
+        for (final satir in satirlar.skip(1)) {
+          final m = <String, Object?>{};
+          for (var i = 0; i < baslik.length && i < satir.length; i++) {
+            final k = baslik[i], tur = tip[k];
+            if (tur == null) continue;
+            final v = satir[i];
+            m[k] = v.isEmpty
+                ? null
+                : tur.contains('INT')
+                    ? int.tryParse(v) ?? double.tryParse(v)?.toInt() ?? v
+                    : tur.contains('REAL')
+                        ? double.tryParse(v) ?? v
+                        : v;
+          }
+          if (m.isEmpty) continue;
+          await tx.insert(t, m, conflictAlgorithm: ConflictAlgorithm.replace);
+          n++;
+        }
+      }
+    });
+    if (c.mounted) mesaj(c, '$n kayıt geri yüklendi');
   }
 
   @override
@@ -609,6 +661,14 @@ class VeriAktar extends StatelessWidget {
               title: const Text('Tüm verileri Excel olarak yedekle'),
               subtitle: const Text('Her tablo ayrı sayfada; Drive, e-posta veya WhatsApp ile saklayın'),
               onTap: () => yedek(context),
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.restore, size: 36),
+              title: const Text('Yedekten geri yükle'),
+              subtitle: const Text('"Tüm verileri Excel olarak yedekle" ile alınan dosyayı bu telefona yükler'),
+              onTap: () => geriYukle(context),
             ),
           ),
           Card(
