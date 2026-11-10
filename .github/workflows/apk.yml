@@ -13,17 +13,18 @@ jobs:
       # Eski depoda v1.0.10'a kadar çıkıldı; numaralar oradan devam eder.
       SURUM_NO: ${{ github.run_number }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
+      - name: Flutter kur
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
 
       - name: Sürüm numarası
         run: |
@@ -51,27 +52,44 @@ jobs:
           [ -f $G ] && sed -i 's/minSdk = flutter.minSdkVersion/minSdk = maxOf(24, flutter.minSdkVersion)/' $G || true
           cat $M
 
-      - name: Sabit imza (güncellemeler üst üste kurulabilsin)
+      - name: İmza şifresi kontrolü
         env:
-          KS: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+          ONMUHASEBE_KEYSTORE_PASSWORD: ${{ secrets.ONMUHASEBE_KEYSTORE_PASSWORD }}
         run: |
-          mkdir -p ~/.android
-          if [ -n "$KS" ]; then echo "$KS" | base64 -d > ~/.android/debug.keystore
-          elif [ -f imza/debug.keystore ]; then cp imza/debug.keystore ~/.android/debug.keystore; fi
+          if [ -z "$ONMUHASEBE_KEYSTORE_PASSWORD" ]; then
+            echo "::error::ONMUHASEBE_KEYSTORE_PASSWORD gizli ayarı eksik. GitHub → Settings → Secrets and variables → Actions bölümünden ekleyin."
+            exit 1
+          fi
 
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - run: flutter build apk --release --build-name=$SURUM --build-number=$KOD
 
+      # Gradle her derlemede geçici bir anahtar üretiyor; APK burada her zaman
+      # aynı anahtarla (imza/on-muhasebe.p12) yeniden imzalanır ve doğrulanır.
+      # Böylece yeni sürümler eskisinin üzerine kurulabilir.
+      - name: APK'yı sabit anahtarla imzala ve doğrula
+        env:
+          ONMUHASEBE_KEYSTORE_PASSWORD: ${{ secrets.ONMUHASEBE_KEYSTORE_PASSWORD }}
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          A=build/app/outputs/flutter-apk
+          "$BT/apksigner" sign --ks imza/on-muhasebe.p12 --ks-type PKCS12 \
+            --ks-pass env:ONMUHASEBE_KEYSTORE_PASSWORD --key-pass env:ONMUHASEBE_KEYSTORE_PASSWORD \
+            --ks-key-alias onmuhasebe --out $A/imzali.apk $A/app-release.apk
+          mv $A/imzali.apk $A/app-release.apk
+          "$BT/apksigner" verify --print-certs $A/app-release.apk | tee imza.txt
+          grep -q "CN=On Muhasebe" imza.txt || { echo "::error::APK doğru anahtarla imzalanmadı"; exit 1; }
+
       - name: APK'yı sakla
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: on-muhasebe-${{ env.SURUM }}
           path: build/app/outputs/flutter-apk/app-release.apk
 
       - name: Release olarak yayınla
         if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: v${{ env.SURUM }}
           name: Ön Muhasebe v${{ env.SURUM }}
@@ -79,7 +97,7 @@ jobs:
 
       - name: Deneme sürümü (main dışı dallar)
         if: github.ref != 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: deneme-${{ github.run_number }}
           name: Deneme ${{ env.SURUM }} (${{ github.ref_name }})
